@@ -86,10 +86,10 @@ with st.sidebar:
     st.markdown("---")
     st.write("### Features")
     st.markdown("""
-    - 📄 PDF/DOCX Support
-    - 🎬 Narrated Videos
-    - 🖼️ Visual Infographics
-    - 🧠 AI powered by Gemini
+    - PDF/DOCX Support
+    - Narrated Videos
+    - Visual Infographics
+    - AI powered by Gemini
     """)
 
 # --- Main UI ---
