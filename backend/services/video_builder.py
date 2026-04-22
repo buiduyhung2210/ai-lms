@@ -139,28 +139,53 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
     label_font = _get_font(18)
     draw.text((30, 20), lesson_title.upper(), font=label_font, fill=theme["accent"])
 
+    # Slide type label (INTRO / TOC / CONTENT / SUMMARY)
+    slide_type = slide.get("slide_type", "content").upper()
+    type_font = _get_font(14)
+    draw.text((30, 44), slide_type, font=type_font, fill=(*theme["accent"][:3],))
+
+    # Chapter/section reference for content slides
+    chapter_ref = slide.get("chapter_ref", "")
+    section_ref = slide.get("section_ref", "")
+    if chapter_ref and chapter_ref != "all" and section_ref and section_ref != "all":
+        ref_font = _get_font(14)
+        ref_text = f"Ch.{chapter_ref} / Sec.{section_ref}"
+        draw.text((width - 200, 20), ref_text, font=ref_font, fill=theme["accent"])
+
     # Slide heading
-    heading_font = _get_font(52, bold=True)
-    emoji = slide.get("emoji", "📚")
-    heading_text = f"{emoji}  {slide['heading']}"
+    heading_font = _get_font(48, bold=True)
+    emoji = slide.get("emoji", "")
+    heading_text = f"{emoji}  {slide['heading']}" if emoji else slide["heading"]
 
     # Word wrap heading
-    wrapped_heading = textwrap.fill(heading_text, width=36)
-    draw.text((60, 80), wrapped_heading, font=heading_font, fill=theme["heading"])
+    wrapped_heading = textwrap.fill(heading_text, width=38)
+    draw.text((60, 70), wrapped_heading, font=heading_font, fill=theme["heading"])
 
     # Accent underline below heading
     heading_lines = wrapped_heading.count("\n") + 1
-    underline_y = 80 + heading_lines * 62 + 10
+    underline_y = 70 + heading_lines * 56 + 10
     draw.rectangle([60, underline_y, 280, underline_y + 4], fill=theme["accent"])
 
-    # Bullet points
-    bullet_font = _get_font(30)
-    bullet_start_y = underline_y + 40
-    line_height = 52
-
+    # Bullet points — adaptive sizing based on count
     bullets = slide.get("bullets", [])
-    for i, bullet in enumerate(bullets[:5]):
+    max_bullets = min(len(bullets), 7)  # Support up to 7 bullets for TOC slides
+
+    # Calculate available space and adapt font/spacing
+    available_height = height - underline_y - 80  # Leave room for progress bar
+    if max_bullets > 5:
+        bullet_font_size = 24
+        line_height = 40
+    else:
+        bullet_font_size = 30
+        line_height = 52
+
+    bullet_font = _get_font(bullet_font_size)
+    bullet_start_y = underline_y + 30
+
+    for i, bullet in enumerate(bullets[:max_bullets]):
         y = bullet_start_y + i * line_height
+        if y + line_height > height - 30:
+            break  # Don't overflow past slide bottom
 
         # Bullet dot
         dot_x = 72
@@ -168,14 +193,14 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         draw.ellipse([dot_x - 8, dot_y - 8, dot_x + 8, dot_y + 8], fill=theme["bullet_dot"])
 
         # Bullet text (wrap at ~70 chars)
-        wrapped = textwrap.fill(bullet, width=68)
+        wrapped = textwrap.fill(bullet, width=70)
         first_line = wrapped.split("\n")[0]
         draw.text((100, y), first_line, font=bullet_font, fill=theme["text"])
 
-        # If there's a second line
-        if "\n" in wrapped:
+        # If there's a second line and space allows
+        if "\n" in wrapped and (y + line_height + 20 < height - 30):
             second_line = wrapped.split("\n")[1]
-            draw.text((100, y + 34), second_line, font=_get_font(26), fill=theme["text"])
+            draw.text((100, y + bullet_font_size + 4), second_line, font=_get_font(max(20, bullet_font_size - 4)), fill=theme["text"])
 
     # Progress bar at bottom
     progress = slide["slide_number"] / total_slides

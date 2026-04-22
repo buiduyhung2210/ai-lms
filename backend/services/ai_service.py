@@ -1,5 +1,11 @@
 """
-AI service — Gemini-powered content generation.
+AI service — Multi-stage Gemini-powered content generation pipeline.
+
+Pipeline stages:
+  1. classify_document()     → detect subject type, difficulty, content style
+  2. detect_structure()      → find chapters & sections in the document
+  3. summarize_sections()    → extract key ideas per section
+  4. generate_lesson_plan()  → produce a rich, context-aware lesson plan
 """
 import os
 import json
@@ -18,26 +24,387 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def generate_slide_script(document_text: str) -> dict:
-    """
-    Use Gemini Flash to produce a structured lesson plan JSON from document text.
-    Returns a dict with keys: title, topic, slides (list of slide dicts).
-    Each slide has: heading, bullets (list[str]), narration (str), emoji (str).
-    """
+def _call_gemini(prompt: str, max_chars: int = 0) -> str:
+    """Helper to call Gemini and return raw text response."""
     client = _get_client()
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=prompt,
+    )
+    return response.text.strip()
 
-    truncated = document_text[:12000]  # Stay within token budget
 
-    prompt = f"""You are an expert instructional designer. Analyze the following document and create an engaging training lesson plan.
+def _parse_json_response(raw: str) -> dict:
+    """Strip markdown fences and parse JSON from Gemini response."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+    return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: Document Classification
+# ---------------------------------------------------------------------------
+
+def classify_document(document_text: str, user_subject_hint: str = "Auto-detect") -> dict:
+    """
+    Classify the document's subject, difficulty, and content style.
+
+    Args:
+        document_text: Full extracted text from the document.
+        user_subject_hint: Optional user-provided subject type override.
+
+    Returns:
+        dict with keys: subject, sub_field, difficulty_level, content_type, language_style
+    """
+    # Use first ~4000 chars for classification (enough to understand the topic)
+    sample = document_text[:4000]
+
+    hint_instruction = ""
+    if user_subject_hint and user_subject_hint != "Auto-detect":
+        hint_instruction = f'\nThe user has indicated this document is about "{user_subject_hint}". Use this as a strong hint but refine the sub_field based on the actual content.'
+
+    prompt = f"""You are an expert document analyst. Analyze the following document excerpt and classify it.
+{hint_instruction}
+
+Return ONLY a valid JSON object (no markdown fences, no extra text) with this exact structure:
+{{
+  "subject": "Main subject area (e.g., Mathematics, Computer Science, Biology, Business, Law, Literature, Medicine, Engineering, Physics, Chemistry, History, Economics)",
+  "sub_field": "Specific sub-field (e.g., Linear Algebra, Web Development, Organic Chemistry, Contract Law)",
+  "difficulty_level": "One of: elementary, intermediate, undergraduate, graduate, professional",
+  "content_type": "One of: textbook, tutorial, research_paper, report, manual, lecture_notes, article",
+  "language_style": "One of: academic, technical, conversational, formal, simplified",
+  "teaching_approach": "Recommended approach: one of: conceptual, procedural, example_driven, case_study, problem_solving"
+}}
+
+Document excerpt:
+---
+{sample}
+---"""
+
+    raw = _call_gemini(prompt)
+    result = _parse_json_response(raw)
+    logger.info(f"Document classified: {result.get('subject')} / {result.get('sub_field')}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Structure Detection
+# ---------------------------------------------------------------------------
+
+def detect_structure(document_text: str, classification: dict, hints: list = None) -> dict:
+    """
+    Detect the chapter/section structure of the document.
+
+    Args:
+        document_text: Full extracted text.
+        classification: Output from classify_document().
+        hints: Structural hints from document parser (page markers, headings).
+
+    Returns:
+        dict with keys: total_chapters, total_sections, structure (list of chapters with sections)
+    """
+    # Use up to ~30000 chars to capture full document structure
+    truncated = document_text[:30000]
+
+    # Build context about detected hints
+    hint_context = ""
+    if hints:
+        heading_hints = [h for h in hints if h["type"] == "heading"]
+        if heading_hints:
+            hint_list = "\n".join(
+                f"  - Level {h['level']}: \"{h['title']}\"" for h in heading_hints[:50]
+            )
+            hint_context = f"""
+The document parser detected these potential headings:
+{hint_list}
+Use these as strong signals for section boundaries, but also look for additional sections the parser may have missed.
+"""
+
+    subject = classification.get("subject", "General")
+    content_type = classification.get("content_type", "document")
+
+    # Subject-specific detection guidance
+    subject_guidance = _get_subject_guidance(subject)
+
+    prompt = f"""You are an expert document structure analyst specializing in {subject} {content_type}s.
+
+Analyze the following document and identify its chapter/section structure.
+{hint_context}
+{subject_guidance}
+
+Return ONLY a valid JSON object (no markdown fences, no extra text) with this structure:
+{{
+  "total_chapters": <number>,
+  "total_sections": <number>,
+  "structure": [
+    {{
+      "chapter": 1,
+      "chapter_title": "Chapter title or main topic area",
+      "sections": [
+        {{
+          "section_number": "1.1",
+          "section_title": "Section title",
+          "content_preview": "First 100-150 characters of this section's content"
+        }}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Identify ALL chapters/major divisions in the document
+- Each chapter should have at least 1 section
+- If no clear chapter divisions exist, treat the whole document as 1 chapter with multiple sections
+- Section titles should be descriptive and meaningful
+- Maximum 20 sections total (group small subsections)
+
+Document content:
+---
+{truncated}
+---"""
+
+    raw = _call_gemini(prompt)
+    result = _parse_json_response(raw)
+    logger.info(f"Structure detected: {result.get('total_chapters')} chapters, {result.get('total_sections')} sections")
+    return result
+
+
+def _get_subject_guidance(subject: str) -> str:
+    """Return subject-specific guidance for structure detection."""
+    guidance_map = {
+        "Mathematics": """For mathematics content, look for:
+- Definitions, Theorems, Proofs, Lemmas, Corollaries as section markers
+- Problem sets and worked examples as subsections
+- Mathematical notation and formula blocks""",
+
+        "Computer Science": """For CS/IT content, look for:
+- Code blocks, algorithms, and implementation sections
+- API documentation patterns (classes, methods, modules)
+- Architecture descriptions, design patterns, system components""",
+
+        "Science": """For science content, look for:
+- Abstract, Introduction, Methods, Results, Discussion structure
+- Experimental procedures and data sections
+- Hypotheses, theories, and evidence blocks""",
+
+        "Business": """For business content, look for:
+- Executive summary, analysis sections, recommendations
+- Case studies, financial data sections, strategy frameworks
+- Market analysis, competitor sections, action plans""",
+
+        "Law": """For legal content, look for:
+- Articles, clauses, and statutory sections
+- Case citations and legal precedent discussions
+- Arguments, counter-arguments, and rulings""",
+
+        "Medicine": """For medical content, look for:
+- Clinical findings, diagnosis, treatment sections
+- Patient case presentations, lab results
+- Drug information, dosage, contraindications""",
+    }
+
+    for key, guidance in guidance_map.items():
+        if key.lower() in subject.lower():
+            return guidance
+
+    return "Look for natural topic boundaries, numbered sections, and clear thematic shifts."
+
+
+# ---------------------------------------------------------------------------
+# Stage 3: Section Summarization
+# ---------------------------------------------------------------------------
+
+def summarize_sections(document_text: str, structure: dict, classification: dict) -> dict:
+    """
+    Summarize key ideas for each section detected in the document.
+    Batches multiple sections per API call for efficiency.
+
+    Args:
+        document_text: Full extracted text.
+        structure: Output from detect_structure().
+        classification: Output from classify_document().
+
+    Returns:
+        dict with key "sections" containing list of section summaries.
+    """
+    subject = classification.get("subject", "General")
+    teaching_approach = classification.get("teaching_approach", "conceptual")
+
+    # Collect all sections
+    all_sections = []
+    for chapter in structure.get("structure", []):
+        for section in chapter.get("sections", []):
+            all_sections.append({
+                "chapter_title": chapter.get("chapter_title", ""),
+                "section_number": section.get("section_number", ""),
+                "section_title": section.get("section_title", ""),
+                "content_preview": section.get("content_preview", ""),
+            })
+
+    if not all_sections:
+        return {"sections": []}
+
+    # Build section list for the prompt
+    section_list = "\n".join(
+        f"  {s['section_number']}. {s['section_title']} (from chapter: {s['chapter_title']})"
+        for s in all_sections
+    )
+
+    truncated = document_text[:25000]
+
+    prompt = f"""You are an expert {subject} educator using a {teaching_approach} teaching approach.
+
+The document has the following sections:
+{section_list}
+
+For EACH section, extract the key ideas and important terms from the document content below.
+
+Return ONLY a valid JSON object (no markdown fences, no extra text) with this structure:
+{{
+  "sections": [
+    {{
+      "section_id": "1.1",
+      "title": "Section title",
+      "key_ideas": [
+        "First key idea — clear, concise, one sentence",
+        "Second key idea",
+        "Third key idea"
+      ],
+      "important_terms": ["term1", "term2", "term3"],
+      "complexity": "introductory | intermediate | advanced"
+    }}
+  ]
+}}
+
+Rules:
+- Extract 2-5 key ideas per section (quality over quantity)
+- Key ideas should be specific and factual, not vague
+- For {subject}: focus on {_get_focus_area(subject)}
+- Important terms should be domain-specific vocabulary
+- Complexity should reflect the difficulty of THAT section
+
+Document content:
+---
+{truncated}
+---"""
+
+    raw = _call_gemini(prompt)
+    result = _parse_json_response(raw)
+    logger.info(f"Summarized {len(result.get('sections', []))} sections")
+    return result
+
+
+def _get_focus_area(subject: str) -> str:
+    """Return what to focus on per subject."""
+    focus = {
+        "Mathematics": "formulas, theorems, proofs, and step-by-step problem-solving methods",
+        "Computer Science": "algorithms, data structures, code patterns, and system design principles",
+        "Science": "hypotheses, experimental evidence, causal relationships, and scientific laws",
+        "Business": "strategies, frameworks, metrics, and actionable recommendations",
+        "Law": "legal principles, precedents, statutory interpretations, and procedural rules",
+        "Medicine": "clinical findings, treatment protocols, drug mechanisms, and diagnostic criteria",
+        "Engineering": "design principles, calculations, standards compliance, and safety factors",
+        "Physics": "physical laws, equations, experimental results, and real-world applications",
+        "Chemistry": "reactions, molecular structures, equilibria, and synthesis pathways",
+        "History": "events, causes, consequences, key figures, and primary source evidence",
+        "Economics": "models, market dynamics, policy implications, and empirical data",
+    }
+    for key, val in focus.items():
+        if key.lower() in subject.lower():
+            return val
+    return "core concepts, definitions, relationships, and practical applications"
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: Lesson Plan Generation (replaces old generate_slide_script)
+# ---------------------------------------------------------------------------
+
+def generate_lesson_plan(
+    classification: dict,
+    structure: dict,
+    section_summaries: dict,
+    document_text: str,
+) -> dict:
+    """
+    Generate a rich, context-aware lesson plan using all upstream analysis.
+
+    Args:
+        classification: Output from classify_document().
+        structure: Output from detect_structure().
+        section_summaries: Output from summarize_sections().
+        document_text: Original text (used for additional context if needed).
+
+    Returns:
+        dict with keys: title, topic, subject, color_theme, slides
+    """
+    subject = classification.get("subject", "General")
+    sub_field = classification.get("sub_field", "")
+    difficulty = classification.get("difficulty_level", "intermediate")
+    teaching_approach = classification.get("teaching_approach", "conceptual")
+    content_type = classification.get("content_type", "document")
+
+    # Calculate dynamic slide count: 1 intro + 1 per section (max 10) + 1 TOC + 1 summary
+    total_sections = structure.get("total_sections", 3)
+    content_slides = min(total_sections, 10)
+    total_slides = 1 + 1 + content_slides + 1  # intro + TOC + content + summary
+    total_slides = max(5, min(total_slides, 15))  # clamp to 5-15
+
+    # Build section context
+    sections_context = ""
+    for sec in section_summaries.get("sections", []):
+        ideas = "\n    ".join(f"- {idea}" for idea in sec.get("key_ideas", []))
+        terms = ", ".join(sec.get("important_terms", []))
+        sections_context += f"""
+  Section {sec.get('section_id', '?')}: {sec.get('title', 'Untitled')} [{sec.get('complexity', 'intermediate')}]
+    Key ideas:
+    {ideas}
+    Terms: {terms}
+"""
+
+    # Build chapter structure overview
+    chapters_overview = ""
+    for ch in structure.get("structure", []):
+        sec_titles = ", ".join(s.get("section_title", "") for s in ch.get("sections", []))
+        chapters_overview += f"  Chapter {ch.get('chapter', '?')}: {ch.get('chapter_title', '')} — Sections: {sec_titles}\n"
+
+    prompt = f"""You are an expert instructional designer specializing in {subject} ({sub_field}).
+You are creating training content for a {difficulty}-level audience from a {content_type}.
+Use a {teaching_approach} teaching approach.
+
+DOCUMENT ANALYSIS:
+Subject: {subject} / {sub_field}
+Difficulty: {difficulty}
+Content type: {content_type}
+
+CHAPTER STRUCTURE:
+{chapters_overview}
+
+SECTION SUMMARIES:
+{sections_context}
+
+Create an engaging training lesson plan with EXACTLY {total_slides} slides.
 
 Return ONLY a valid JSON object (no markdown fences, no extra text) with this exact structure:
 {{
   "title": "Lesson title (max 60 chars)",
-  "topic": "Brief topic category (e.g. Technology, Science, Business)",
+  "topic": "{subject} — {sub_field}",
+  "subject": "{subject}",
+  "difficulty": "{difficulty}",
   "color_theme": "one of: purple, blue, teal, orange, pink",
+  "total_chapters_covered": {structure.get('total_chapters', 1)},
+  "total_sections_covered": {total_sections},
   "slides": [
     {{
       "slide_number": 1,
+      "slide_type": "one of: intro, toc, content, summary",
+      "chapter_ref": "Which chapter this slide covers (or 'all' for intro/toc/summary)",
+      "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
       "bullets": ["bullet 1", "bullet 2", "bullet 3"],
       "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud.",
@@ -46,37 +413,64 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
   ]
 }}
 
-Rules:
-- Create exactly 5 slides
-- Slide 1 should be an introduction/overview
-- Slides 2-4 should cover key concepts from the document
-- Slide 5 should be a summary/key takeaways
-- Each slide should have 3-5 bullet points
-- Narration should be natural, engaging, and educational
-- Make it genuinely educational and accurate to the document content
+Slide layout rules:
+- Slide 1: type "intro" — overview of the entire document, what the student will learn
+- Slide 2: type "toc" — table of contents showing chapters and sections covered
+- Slides 3 to {total_slides - 1}: type "content" — one slide per major section, covering key ideas
+- Slide {total_slides}: type "summary" — key takeaways from ALL sections, what to remember
+- Each content slide should have 3-5 bullet points drawn from the section summaries above
+- Narration should be natural, engaging, and tailored to {difficulty} level
+- For {subject}: {_get_narration_style(subject)}
+- Reference specific terms and ideas from the section summaries"""
 
-Document content:
----
-{truncated}
----"""
+    raw = _call_gemini(prompt)
+    result = _parse_json_response(raw)
 
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
+    # Inject analysis metadata into the result
+    result["classification"] = classification
+    result["structure_summary"] = {
+        "total_chapters": structure.get("total_chapters", 0),
+        "total_sections": structure.get("total_sections", 0),
+    }
 
-    raw = response.text.strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    if raw.endswith("```"):
-        raw = raw[:-3].strip()
+    logger.info(f"Lesson plan generated: {len(result.get('slides', []))} slides for {subject}")
+    return result
 
-    return json.loads(raw)
 
+def _get_narration_style(subject: str) -> str:
+    """Return narration style guidance per subject."""
+    styles = {
+        "Mathematics": "walk through formulas step by step, explain WHY each step works, use analogies for abstract concepts",
+        "Computer Science": "use real-world analogies for algorithms, explain code logic in plain English, mention practical use cases",
+        "Science": "connect to real-world phenomena, explain cause-and-effect clearly, reference experiments",
+        "Business": "use industry examples, mention real companies/cases, focus on actionable insights",
+        "Law": "cite specific legal principles, use case references, explain implications clearly",
+        "Medicine": "use patient-centered language, explain clinical relevance, connect symptoms to mechanisms",
+    }
+    for key, style in styles.items():
+        if key.lower() in subject.lower():
+            return style
+    return "be clear and engaging, use examples, connect concepts to real-world applications"
+
+
+# ---------------------------------------------------------------------------
+# Legacy wrapper (for backward compatibility)
+# ---------------------------------------------------------------------------
+
+def generate_slide_script(document_text: str) -> dict:
+    """
+    Legacy wrapper — runs the full 4-stage pipeline.
+    Kept for backward compatibility with existing code.
+    """
+    classification = classify_document(document_text)
+    structure = detect_structure(document_text, classification)
+    summaries = summarize_sections(document_text, structure, classification)
+    return generate_lesson_plan(classification, structure, summaries, document_text)
+
+
+# ---------------------------------------------------------------------------
+# Infographic functions (unchanged)
+# ---------------------------------------------------------------------------
 
 def generate_infographic_description(document_text: str, lesson_plan: dict) -> str:
     """
@@ -85,7 +479,9 @@ def generate_infographic_description(document_text: str, lesson_plan: dict) -> s
     client = _get_client()
     truncated = document_text[:6000]
 
-    prompt = f"""You are a professional graphic designer and educator.
+    subject = lesson_plan.get("subject", lesson_plan.get("topic", "Training"))
+
+    prompt = f"""You are a professional graphic designer and educator specializing in {subject}.
     
 Based on this document and lesson plan titled "{lesson_plan.get('title', 'Training Material')}", 
 write a detailed image generation prompt for a beautiful, professional educational infographic.
@@ -93,7 +489,7 @@ write a detailed image generation prompt for a beautiful, professional education
 The infographic should:
 - Have a clean, modern design with a dark or vibrant background
 - Visually summarize the TOP 5 key concepts from the document
-- Include icons, charts, or visual metaphors relevant to the topic
+- Include icons, charts, or visual metaphors relevant to {subject}
 - Use a color palette that feels premium and educational
 - Have clear section labels and hierarchy
 - Look like something from a top consulting firm or educational platform
