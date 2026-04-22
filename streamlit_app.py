@@ -23,7 +23,6 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 # --- Page Config & Styling ---
 st.set_page_config(
     page_title="AI LMS — Document to Training Content",
-    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -94,7 +93,7 @@ with st.sidebar:
     """)
 
 # --- Main UI ---
-st.title("🎓 AI Training Content Generator")
+st.title("AI Training Content Generator")
 st.markdown("Turn any document into a narrated training video and infographic in minutes.")
 
 # File uploader
