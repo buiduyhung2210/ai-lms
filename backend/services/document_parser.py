@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-Document parser service — supports PDF, DOCX, and TXT.
+Document parser service -- supports PDF, DOCX, and TXT.
 Returns structured text with page/heading markers for downstream AI analysis.
 """
 import io

@@ -1,11 +1,12 @@
+# -*- coding: utf-8 -*-
 """
-AI service — Multi-stage Gemini-powered content generation pipeline.
+AI service -- Multi-stage Gemini-powered content generation pipeline.
 
 Pipeline stages:
-  1. classify_document()     → detect subject type, difficulty, content style
-  2. detect_structure()      → find chapters & sections in the document
-  3. summarize_sections()    → extract key ideas per section
-  4. generate_lesson_plan()  → produce a rich, context-aware lesson plan
+  1. classify_document()     - detect subject type, difficulty, content style
+  2. detect_structure()      - find chapters & sections in the document
+  3. summarize_sections()    - extract key ideas per section
+  4. generate_lesson_plan()  - produce a rich, context-aware lesson plan
 """
 import os
 import json
