@@ -13,12 +13,12 @@ import json
 import base64
 import logging
 from typing import Optional
+from google import genai
 
 logger = logging.getLogger(__name__)
 
 
 def _get_client():
-    from google import genai
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set in environment")

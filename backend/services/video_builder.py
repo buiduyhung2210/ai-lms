@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PIL import Image, ImageDraw, ImageFont
+from gtts import gTTS
+from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +322,6 @@ def build_training_video(lesson_plan: dict, progress_callback: Optional[Callable
         narration = slide.get("narration", slide["heading"])
         audio_path = OUTPUTS_DIR / f"audio_{video_id}_{i}.mp3"
         try:
-            from gtts import gTTS
             tts = gTTS(text=narration, lang="en", slow=False)
             tts.save(str(audio_path))
         except Exception as e:
@@ -334,7 +335,6 @@ def build_training_video(lesson_plan: dict, progress_callback: Optional[Callable
     if progress_callback:
         progress_callback("assembling_video", 0, 1)
 
-    from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip
     import numpy as np
 
     clips = []
