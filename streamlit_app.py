@@ -7,17 +7,28 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Import backend services
-from backend.services.document_parser import extract_text
-from backend.services.ai_service import (
-    classify_document,
-    detect_structure,
-    summarize_sections,
-    generate_lesson_plan,
-    generate_infographic_description,
-    generate_infographic_image,
-)
-from backend.services.video_builder import build_training_video, build_fallback_infographic
+import sys
+from pathlib import Path
+# Add the current directory to sys.path to ensure 'backend' is recognized
+sys.path.append(str(Path(__file__).parent))
+
+try:
+    # Import backend services
+    from backend.services.document_parser import extract_text
+    from backend.services.ai_service import (
+        classify_document,
+        detect_structure,
+        summarize_sections,
+        generate_lesson_plan,
+        generate_infographic_description,
+        generate_infographic_image,
+    )
+    from backend.services.video_builder import build_training_video, build_fallback_infographic
+except Exception as e:
+    import traceback
+    st.error("Error importing backend services:")
+    st.code(traceback.format_exc())
+    st.stop()
 
 # --- Constants & Config ---
 OUTPUTS_DIR = Path("backend/outputs")
