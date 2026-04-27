@@ -284,8 +284,9 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
 }}
 
 Rules:
-- Extract 2-5 key ideas per section (quality over quantity)
-- Key ideas should be specific and factual, not vague
+- Extract 3-5 key ideas per section.
+- CRITICAL: NO ABSTRACTION. If the text provides a specific formula, algorithm step, or data point, INCLUDE IT.
+- Key ideas should be informative enough to stand alone as a learning point.
 - For {subject}: focus on {_get_focus_area(subject)}
 - Important terms should be domain-specific vocabulary
 - Complexity should reflect the difficulty of THAT section
@@ -408,19 +409,20 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
       "bullets": ["bullet 1", "bullet 2", "bullet 3"],
-      "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud.",
-      "emoji": "A single relevant emoji for this slide topic"
+      "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud."
     }}
   ]
 }}
 
 Slide layout rules:
-- Slide 1: type "intro" — overview of the entire document, what the student will learn
-- Slide 2: type "toc" — table of contents showing chapters and sections covered
-- Slides 3 to {total_slides - 1}: type "content" — one slide per major section, covering key ideas
-- Slide {total_slides}: type "summary" — key takeaways from ALL sections, what to remember
-- Each content slide should have 3-5 bullet points drawn from the section summaries above
-- Narration should be natural, engaging, and tailored to {difficulty} level
+- Slide 1: type "intro" — overview of the entire document, what the student will learn. Mention at least 2 specific goals.
+- Slide 2: type "toc" — table of contents showing chapters and sections covered.
+- Slides 3 to {total_slides - 1}: type "content" — one slide per major section.
+- Slide {total_slides}: type "summary" — key takeaways from ALL sections.
+- CRITICAL: NO VAGUE CONTENT. Each bullet point MUST contain a concrete fact, a specific step, or a technical detail from the section summaries.
+- DO NOT say "Learn about X". DO say "X is a Y that performs Z by using A."
+- Each content slide should have 3-5 bullet points.
+- Narration should be natural, engaging, and EXPLAIN the technical details in the bullets.
 - For {subject}: {_get_narration_style(subject)}
 - Reference specific terms and ideas from the section summaries"""
 

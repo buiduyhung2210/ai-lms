@@ -67,26 +67,35 @@ THEMES = {
 }
 
 
-def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+def _get_font(size: int, bold: bool = False, emoji: bool = False) -> ImageFont.FreeTypeFont:
     """Try to get a nice system font, fallback to default."""
     candidates = []
-    if bold:
+    if emoji:
         candidates = [
+            "C:/Windows/Fonts/seguiemj.ttf",  # Windows Emoji
+            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",  # Linux
+            "/System/Library/Fonts/Apple Color Emoji.ttc",  # macOS
+        ]
+    elif bold:
+        candidates = [
+            "C:/Windows/Fonts/arialbd.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
-            "C:/Windows/Fonts/arialbd.ttf",
         ]
     else:
         candidates = [
+            "C:/Windows/Fonts/arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
-            "C:/Windows/Fonts/arial.ttf",
         ]
+    
     for path in candidates:
         if os.path.exists(path):
             try:
+                # For emoji font, we often need to use specific sizes or it might not render well
+                # but let's try the requested size first
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
@@ -156,12 +165,19 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
 
     # Slide heading
     heading_font = _get_font(48, bold=True)
+    emoji_font = _get_font(48, emoji=True)
     emoji = slide.get("emoji", "")
-    heading_text = f"{emoji}  {slide['heading']}" if emoji else slide["heading"]
+    
+    # Draw emoji and heading separately for better font support
+    heading_x = 60
+    if emoji:
+        draw.text((heading_x, 70), emoji, font=emoji_font, fill=(255, 255, 255))
+        heading_x += 70  # Shift heading to the right
 
-    # Word wrap heading
-    wrapped_heading = textwrap.fill(heading_text, width=38)
-    draw.text((60, 70), wrapped_heading, font=heading_font, fill=theme["heading"])
+    # Word wrap heading (adjust width if emoji present)
+    wrap_width = 32 if emoji else 38
+    wrapped_heading = textwrap.fill(slide['heading'], width=wrap_width)
+    draw.text((heading_x, 70), wrapped_heading, font=heading_font, fill=theme["heading"])
 
     # Accent underline below heading
     heading_lines = wrapped_heading.count("\n") + 1
@@ -264,8 +280,10 @@ def build_fallback_infographic(lesson_plan: dict) -> bytes:
 
         # Emoji + Heading
         heading_font = _get_font(34, bold=True)
-        emoji = slide.get("emoji", "📌")
-        draw.text((125, card_y + 20), f"{emoji}  {slide['heading']}", font=heading_font, fill=theme["heading"])
+        emoji_font = _get_font(34, emoji=True)
+        emoji = slide.get("emoji", "")
+        draw.text((125, card_y + 20), emoji, font=emoji_font, fill=(255, 255, 255))
+        draw.text((185, card_y + 20), slide['heading'], font=heading_font, fill=theme["heading"])
 
         # Top bullet
         bullet_font = _get_font(24)

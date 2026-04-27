@@ -304,7 +304,7 @@ if uploaded_file is not None:
                 for slide in lesson_plan.get("slides", []):
                     slide_type = slide.get("slide_type", "content")
                     type_label = f"[{slide_type.upper()}]"
-                    with st.expander(f"Slide {slide['slide_number']} {type_label}: {slide.get('emoji', '')} {slide['heading']}"):
+                    with st.expander(f"Slide {slide['slide_number']} {type_label}: {slide['heading']}"):
                         if slide.get("chapter_ref") and slide["chapter_ref"] != "all":
                             st.caption(f"Chapter: {slide['chapter_ref']} | Section: {slide.get('section_ref', '—')}")
                         st.write(f"**Narration:** {slide['narration']}")
