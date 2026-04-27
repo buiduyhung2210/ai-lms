@@ -227,7 +227,6 @@ function showResults(result) {
     item.innerHTML = `
       <div class="slide-item-header">
         <div class="slide-num">${slide.slide_number}</div>
-        <span class="slide-emoji" aria-hidden="true">${slide.emoji || '📌'}</span>
         <span class="slide-heading">${escapeHtml(slide.heading)}</span>
       </div>
       <p class="slide-narration">${escapeHtml(slide.narration || '')}</p>
