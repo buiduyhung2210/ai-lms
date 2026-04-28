@@ -20,8 +20,8 @@ try:
         detect_structure,
         summarize_sections,
         generate_lesson_plan,
-        generate_infographic_description,
-        generate_infographic_image,
+        generate_infographic_descriptions,
+        generate_infographic_images,
     )
     from backend.services.video_builder import build_training_video, build_fallback_infographic
 except Exception as e:
@@ -215,18 +215,22 @@ if uploaded_file is not None:
                         state="running"
                     )
                     
-                    # ── Generate Infographic ──
-                    status.update(label="Designing and generating infographic...", state="running")
-                    infographic_desc = generate_infographic_description(document_text, lesson_plan)
-                    image_bytes = generate_infographic_image(infographic_desc, lesson_plan)
+                    # ── Generate Infographics ──
+                    status.update(label="Designing and generating infographics...", state="running")
+                    infographic_descs = generate_infographic_descriptions(document_text, lesson_plan)
+                    images_list = generate_infographic_images(infographic_descs, lesson_plan)
                     
-                    if not image_bytes:
+                    if not images_list:
                         status.update(label="Image generation failed, building fallback...", state="running")
-                        image_bytes = build_fallback_infographic(lesson_plan)
+                        fallback = build_fallback_infographic(lesson_plan)
+                        images_list = [fallback]
                     
-                    # Store infographic
-                    infographic_path = OUTPUTS_DIR / f"infographic_{uploaded_file.name}.png"
-                    infographic_path.write_bytes(image_bytes)
+                    # Store infographics
+                    infographic_paths = []
+                    for i, image_bytes in enumerate(images_list):
+                        inf_path = OUTPUTS_DIR / f"infographic_{uploaded_file.name}_{i}.png"
+                        inf_path.write_bytes(image_bytes)
+                        infographic_paths.append(inf_path)
                     
                     # ── Build Training Video ──
                     status.update(label="Rendering video slides and narration...", state="running")
@@ -288,15 +292,18 @@ if uploaded_file is not None:
                         )
                 
                 with col2:
-                    st.subheader("Infographic")
-                    st.image(image_bytes, use_column_width=True)
-                    st.download_button(
-                        label="Download PNG",
-                        data=image_bytes,
-                        file_name=f"infographic_{uploaded_file.name}.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
+                    st.subheader("Infographics")
+                    for i, img_bytes in enumerate(images_list):
+                        st.image(img_bytes, use_column_width=True, caption=f"Infographic Part {i+1}")
+                        st.download_button(
+                            label=f"Download Part {i+1} (PNG)",
+                            data=img_bytes,
+                            file_name=f"infographic_{uploaded_file.name}_{i}.png",
+                            mime="image/png",
+                            key=f"dl_infographic_{i}",
+                            use_container_width=True
+                        )
+                        st.markdown("<br>", unsafe_allow_html=True)
                 
                 # --- Lesson Outline ---
                 st.markdown("---")
@@ -310,7 +317,14 @@ if uploaded_file is not None:
                         st.write(f"**Narration:** {slide['narration']}")
                         st.write("**Key Points:**")
                         for bullet in slide['bullets']:
-                            st.write(f"- {bullet}")
+                            if isinstance(bullet, dict):
+                                b_text = bullet.get("text", "")
+                                b_example = bullet.get("example")
+                                st.write(f"- {b_text}")
+                                if b_example:
+                                    st.code(b_example)
+                            else:
+                                st.write(f"- {bullet}")
                 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")

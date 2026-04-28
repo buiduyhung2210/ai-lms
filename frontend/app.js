@@ -206,16 +206,36 @@ function showResults(result) {
   videoDownloadLink.href = videoUrl;
   videoDownloadLink.download = `training_${Date.now()}.mp4`;
 
-  // Infographic
-  if (result.infographic_base64) {
-    const src = `data:image/png;base64,${result.infographic_base64}`;
-    resultInfographic.src = src;
-    infographicDownloadLink.href = src;
-    infographicDownloadLink.download = `infographic_${Date.now()}.png`;
+  // Infographics
+  const infographicContainer = document.getElementById('infographic-container') || resultInfographic.parentElement;
+  
+  // Clear previous infographics if we added many
+  const oldExtra = infographicContainer.querySelectorAll('.extra-infographic');
+  oldExtra.forEach(el => el.remove());
+
+  const urls = result.infographic_urls || [];
+  const b64s = result.infographic_base64s || [];
+
+  if (urls.length > 0) {
+    // Update first one (main)
+    resultInfographic.src = urls[0];
+    infographicDownloadLink.href = urls[0];
+    
+    // Add others
+    for (let i = 1; i < urls.length; i++) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'extra-infographic card mt-4';
+      wrapper.innerHTML = `
+        <img src="${urls[i]}" class="img-fluid rounded mb-2" alt="Infographic ${i+1}">
+        <a href="${urls[i]}" download="infographic_${i+1}.png" class="btn btn-outline-primary btn-sm w-100">
+          Download Part ${i+1}
+        </a>
+      `;
+      infographicContainer.appendChild(wrapper);
+    }
   } else if (result.infographic_url) {
-    resultInfographic.src = result.infographic_url;
-    infographicDownloadLink.href = result.infographic_url;
-    infographicDownloadLink.download = `infographic_${Date.now()}.png`;
+      resultInfographic.src = result.infographic_url;
+      infographicDownloadLink.href = result.infographic_url;
   }
 
   // Slide outline
@@ -224,12 +244,31 @@ function showResults(result) {
     const item = document.createElement('div');
     item.className = 'slide-item';
     item.setAttribute('role', 'listitem');
+    
+    let bulletsHtml = '';
+    if (slide.bullets && slide.bullets.length > 0) {
+      bulletsHtml = '<ul class="slide-bullets" style="margin-top: 10px; font-size: 0.9em; color: var(--text-muted);">';
+      slide.bullets.forEach(b => {
+        if (typeof b === 'object' && b !== null) {
+          bulletsHtml += `<li>${escapeHtml(b.text || '')}`;
+          if (b.example) {
+            bulletsHtml += `<br><code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: var(--accent); margin-top: 4px; display: inline-block;">${escapeHtml(b.example)}</code>`;
+          }
+          bulletsHtml += `</li>`;
+        } else {
+          bulletsHtml += `<li>${escapeHtml(b)}</li>`;
+        }
+      });
+      bulletsHtml += '</ul>';
+    }
+
     item.innerHTML = `
       <div class="slide-item-header">
         <div class="slide-num">${slide.slide_number}</div>
         <span class="slide-heading">${escapeHtml(slide.heading)}</span>
       </div>
       <p class="slide-narration">${escapeHtml(slide.narration || '')}</p>
+      ${bulletsHtml}
     `;
     slidesList.appendChild(item);
   });

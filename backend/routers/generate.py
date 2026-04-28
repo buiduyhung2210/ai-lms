@@ -15,9 +15,9 @@ from fastapi.responses import StreamingResponse, FileResponse
 
 from backend.services.document_parser import extract_text
 from backend.services.ai_service import (
-    generate_slide_script,
-    generate_infographic_description,
-    generate_infographic_image,
+    generate_lesson_plan,
+    generate_infographic_descriptions,
+    generate_infographic_images,
 )
 from backend.services.video_builder import build_training_video, build_fallback_infographic
 
@@ -135,31 +135,42 @@ async def _run_pipeline(job_id: str, filename: str, content: bytes, api_key: Opt
 
         # Step 2: Analyze with Gemini
         update("🧠 Analyzing content with AI...", 15)
-        lesson_plan = await loop.run_in_executor(None, generate_slide_script, document_text)
+        # Using full pipeline explicitly for more control
+        from backend.services.ai_service import classify_document, detect_structure, summarize_sections
+        classification = await loop.run_in_executor(None, classify_document, document_text)
+        structure = await loop.run_in_executor(None, detect_structure, document_text, classification)
+        summaries = await loop.run_in_executor(None, summarize_sections, document_text, structure, classification)
+        lesson_plan = await loop.run_in_executor(None, generate_lesson_plan, classification, structure, summaries, document_text)
 
-        # Step 3: Generate infographic prompt
-        update("🎨 Designing infographic...", 35)
-        infographic_desc = await loop.run_in_executor(
-            None, generate_infographic_description, document_text, lesson_plan
+        # Step 3: Generate infographic prompts
+        update("🎨 Designing infographics...", 35)
+        infographic_descs = await loop.run_in_executor(
+            None, generate_infographic_descriptions, document_text, lesson_plan
         )
 
-        # Step 4: Generate infographic image
-        update("🖼️ Generating infographic image...", 45)
-        image_bytes = await loop.run_in_executor(
-            None, generate_infographic_image, infographic_desc, lesson_plan
+        # Step 4: Generate infographic images
+        update("🖼️ Generating infographic images...", 45)
+        images_list = await loop.run_in_executor(
+            None, generate_infographic_images, infographic_descs, lesson_plan
         )
 
-        if not image_bytes:
+        if not images_list:
             update("🖼️ Building infographic (fallback renderer)...", 50)
-            image_bytes = await loop.run_in_executor(
+            fallback = await loop.run_in_executor(
                 None, build_fallback_infographic, lesson_plan
             )
+            images_list = [fallback]
 
-        # Save infographic
-        infographic_id = uuid.uuid4().hex[:8]
-        infographic_filename = f"infographic_{infographic_id}.png"
-        infographic_path = OUTPUTS_DIR / infographic_filename
-        infographic_path.write_bytes(image_bytes)
+        # Save infographics
+        infographic_urls = []
+        infographic_b64s = []
+        for i, image_bytes in enumerate(images_list):
+            inf_id = uuid.uuid4().hex[:6]
+            inf_filename = f"infographic_{inf_id}_{i}.png"
+            inf_path = OUTPUTS_DIR / inf_filename
+            inf_path.write_bytes(image_bytes)
+            infographic_urls.append(f"/api/outputs/{inf_filename}")
+            infographic_b64s.append(base64.b64encode(image_bytes).decode())
 
         # Step 5: Build training video
         update("🎬 Rendering training video slides...", 55)
@@ -185,8 +196,8 @@ async def _run_pipeline(job_id: str, filename: str, content: bytes, api_key: Opt
             "lesson_title": lesson_plan.get("title"),
             "topic": lesson_plan.get("topic"),
             "video_url": f"/api/outputs/{video_path.name}",
-            "infographic_url": f"/api/outputs/{infographic_filename}",
-            "infographic_base64": base64.b64encode(image_bytes).decode(),
+            "infographic_urls": infographic_urls,
+            "infographic_base64s": infographic_b64s,
             "slides": lesson_plan.get("slides", []),
         }
 
