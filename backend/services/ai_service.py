@@ -618,3 +618,22 @@ def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> l
                 break
                 
     return images
+
+
+# --- Legacy Aliases for backward compatibility ---
+def generate_infographic_description(document_text: str, lesson_plan: dict) -> str:
+    """Legacy singular wrapper."""
+    descs = generate_infographic_descriptions(document_text, lesson_plan)
+    return descs[0] if descs else ""
+
+def generate_infographic_image(description: str, lesson_plan: dict) -> Optional[bytes]:
+    """Legacy singular wrapper."""
+    imgs = generate_infographic_images([description], lesson_plan)
+    return imgs[0] if imgs else None
+
+def generate_slide_script(document_text: str) -> dict:
+    """Legacy full pipeline wrapper."""
+    classification = classify_document(document_text)
+    structure = detect_structure(document_text, classification)
+    summaries = summarize_sections(document_text, structure, classification)
+    return generate_lesson_plan(classification, structure, summaries, document_text)
