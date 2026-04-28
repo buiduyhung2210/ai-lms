@@ -163,7 +163,6 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
     slide_type = slide.get("slide_type", "content").upper()
     type_font = _get_font(14)
     draw.text((30, 44), slide_type, font=type_font, fill=(*theme["accent"][:3],))
-
     # Chapter/section reference for content slides
     chapter_ref = slide.get("chapter_ref", "")
     section_ref = slide.get("section_ref", "")
@@ -171,36 +170,6 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         ref_font = _get_font(14)
         ref_text = f"Ch.{chapter_ref} / Sec.{section_ref}"
         draw.text((width - 200, 20), ref_text, font=ref_font, fill=theme["accent"])
-
-    # --- NEW: Internet Image Integration ---
-    image_query = slide.get("image_query", "")
-    has_image = False
-    if image_query:
-        try:
-            import requests
-            import io
-            # Clean up query for URL
-            clean_query = image_query.replace(" ", ",").split(",")[0:3] # take first 3 words
-            search_url = f"https://loremflickr.com/400/300/{','.join(clean_query)}"
-            
-            response = requests.get(search_url, timeout=5)
-            if response.status_code == 200:
-                overlay_img = Image.open(io.BytesIO(response.content)).convert("RGBA")
-                # Resize and add rounded corners
-                overlay_img.thumbnail((400, 300))
-                
-                # Create mask for rounded corners
-                mask = Image.new("L", overlay_img.size, 0)
-                mask_draw = ImageDraw.Draw(mask)
-                mask_draw.rounded_rectangle([0, 0, overlay_img.size[0], overlay_img.size[1]], radius=15, fill=255)
-                
-                # Paste on right side
-                img.paste(overlay_img, (width - 450, 150), mask)
-                # Border
-                draw.rounded_rectangle([width - 450, 150, width - 450 + overlay_img.size[0], 150 + overlay_img.size[1]], radius=15, outline=theme["accent"], width=3)
-                has_image = True
-        except Exception as e:
-            logger.warning(f"Failed to fetch internet image for query '{image_query}': {e}")
 
     # Slide heading
     heading_font = _get_font(48, bold=True)
@@ -256,8 +225,8 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         dot_y = current_y + 14
         draw.ellipse([dot_x - 8, dot_y - 8, dot_x + 8, dot_y + 8], fill=theme["bullet_dot"])
 
-        # Bullet text (wrap narrower if we have an image on the right)
-        wrap_width = 45 if has_image else 70
+        # Bullet text
+        wrap_width = 70
         wrapped_text = textwrap.fill(b_text, width=wrap_width)
         text_lines = wrapped_text.split("\n")
         
@@ -271,8 +240,7 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         # Draw example if present and space allows
         if b_example:
             example_font = _get_font(max(16, bullet_font_size - 8), mono=True)
-            # Use a narrower width for code if we have an image
-            ex_wrap_width = 40 if has_image else 65
+            ex_wrap_width = 65
             wrapped_ex = textwrap.fill(f"{b_example}", width=ex_wrap_width)
             ex_lines = wrapped_ex.split("\n")
             
@@ -281,7 +249,7 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
                 if current_y + 20 > height - 40:
                     break
                 draw.text((120, current_y), ex_line, font=example_font, fill=theme["accent"])
-                current_y += (bullet_font_size - 4)
+                current_y += (bullet_font_size - 6)
             
             # Small extra gap after an example
             current_y += 10
