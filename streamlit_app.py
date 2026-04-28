@@ -245,35 +245,62 @@ if uploaded_file is not None:
                 # --- Document Analysis Display ---
                 st.success("Your training package is ready!")
                 
-                with st.expander("Document Analysis", expanded=True):
+                with st.expander("🔍 Document Analysis & Structural Map", expanded=True):
                     col_a, col_b, col_c = st.columns(3)
                     
                     with col_a:
-                        st.metric("Subject", classification.get("subject", "—"))
-                        st.caption(f"Sub-field: {classification.get('sub_field', '—')}")
+                        st.markdown(f"""
+                        <div class="card">
+                            <h3 style='margin:0; font-size:0.9em; color:#94a3b8;'>SUBJECT</h3>
+                            <div style='font-size:1.5em; font-weight:700;'>{classification.get("subject", "—")}</div>
+                            <div style='font-size:0.8em; color:#7c3aed;'>{classification.get('sub_field', '—')}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     with col_b:
-                        st.metric("Difficulty", classification.get("difficulty_level", "—").capitalize())
-                        st.caption(f"Content type: {classification.get('content_type', '—')}")
+                        st.markdown(f"""
+                        <div class="card">
+                            <h3 style='margin:0; font-size:0.9em; color:#94a3b8;'>DIFFICULTY</h3>
+                            <div style='font-size:1.5em; font-weight:700;'>{classification.get("difficulty_level", "—").capitalize()}</div>
+                            <div style='font-size:0.8em; color:#06b6d4;'>{classification.get('content_type', '—')}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     with col_c:
-                        st.metric("Structure", f"{structure.get('total_chapters', 0)} ch / {structure.get('total_sections', 0)} sec")
-                        st.caption(f"Teaching: {classification.get('teaching_approach', '—')}")
+                        st.markdown(f"""
+                        <div class="card">
+                            <h3 style='margin:0; font-size:0.9em; color:#94a3b8;'>STRUCTURE</h3>
+                            <div style='font-size:1.5em; font-weight:700;'>{structure.get('total_chapters', 0)} Ch / {structure.get('total_sections', 0)} Sec</div>
+                            <div style='font-size:0.8em; color:#10b981;'>{classification.get('teaching_approach', '—')} Approach</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     # Chapter/Section breakdown
-                    st.markdown("---")
-                    st.write("**Document Structure:**")
+                    st.markdown("### 🗺️ Content Roadmap")
                     for ch in structure.get("structure", []):
-                        st.write(f"**Chapter {ch.get('chapter', '?')}: {ch.get('chapter_title', 'Untitled')}**")
-                        for sec in ch.get("sections", []):
-                            # Find matching summary
-                            summary_match = next(
-                                (s for s in section_summaries.get("sections", []) 
-                                 if s.get("section_id") == sec.get("section_number")),
-                                None
-                            )
-                            ideas_count = len(summary_match.get("key_ideas", [])) if summary_match else 0
-                            st.write(f"  - {sec.get('section_number', '?')}. {sec.get('section_title', '')} — {ideas_count} key ideas")
+                        with st.container():
+                            st.markdown(f"""
+                            <div style='border-left: 3px solid #7c3aed; padding-left: 15px; margin: 15px 0;'>
+                                <div style='font-weight:700; color:#f1f5f9;'>Chapter {ch.get('chapter', '?')}: {ch.get('chapter_title', 'Untitled')}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            cols = st.columns([1, 11])
+                            with cols[1]:
+                                for sec in ch.get("sections", []):
+                                    summary_match = next(
+                                        (s for s in section_summaries.get("sections", []) 
+                                         if s.get("section_id") == sec.get("section_number")),
+                                        None
+                                    )
+                                    ideas_count = len(summary_match.get("key_ideas", [])) if summary_match else 0
+                                    st.markdown(f"""
+                                    <div style='font-size:0.9em; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05);'>
+                                        <span style='color:#7c3aed; font-weight:600;'>{sec.get('section_number', '?')}</span> 
+                                        {sec.get('section_title', '')} 
+                                        <span style='color:#64748b; font-size:0.8em;'>({ideas_count} key ideas)</span>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                 
                 # --- Results Display ---
                 st.markdown("---")
@@ -307,24 +334,52 @@ if uploaded_file is not None:
                 
                 # --- Lesson Outline ---
                 st.markdown("---")
-                st.subheader("Lesson Outline")
+                st.markdown("---")
+                st.subheader("📚 Detailed Lesson Plan")
+                
                 for slide in lesson_plan.get("slides", []):
                     slide_type = slide.get("slide_type", "content")
-                    type_label = f"[{slide_type.upper()}]"
-                    with st.expander(f"Slide {slide['slide_number']} {type_label}: {slide['heading']}"):
-                        if slide.get("chapter_ref") and slide["chapter_ref"] != "all":
-                            st.caption(f"Chapter: {slide['chapter_ref']} | Section: {slide.get('section_ref', '—')}")
-                        st.write(f"**Narration:** {slide['narration']}")
-                        st.write("**Key Points:**")
-                        for bullet in slide['bullets']:
-                            if isinstance(bullet, dict):
-                                b_text = bullet.get("text", "")
-                                b_example = bullet.get("example")
-                                st.write(f"- {b_text}")
-                                if b_example:
-                                    st.code(b_example)
-                            else:
-                                st.write(f"- {bullet}")
+                    type_colors = {
+                        "intro": "#7c3aed",
+                        "toc": "#06b6d4",
+                        "content": "#10b981",
+                        "summary": "#f59e0b"
+                    }
+                    border_color = type_colors.get(slide_type, "#64748b")
+                    
+                    with st.container():
+                        st.markdown(f"""
+                        <div style='background: rgba(15, 23, 42, 0.4); border-left: 5px solid {border_color}; border-radius: 8px; padding: 20px; margin-bottom: 20px;'>
+                            <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;'>
+                                <span style='font-weight:800; font-size:1.1em; color:{border_color};'>{slide_type.upper()}</span>
+                                <span style='color:#64748b; font-size:0.9em;'>Slide {slide['slide_number']}</span>
+                            </div>
+                            <h2 style='margin-top:0; font-size:1.4em; color:#f1f5f9;'>{slide['heading']}</h2>
+                            <div style='color:#94a3b8; font-size:0.85em; margin-bottom:15px;'>
+                                Chapter: {slide.get('chapter_ref', 'all')} | Section: {slide.get('section_ref', '—')}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        col_text, col_narr = st.columns([1, 1])
+                        
+                        with col_text:
+                            st.markdown("#### **Key Points**")
+                            for bullet in slide['bullets']:
+                                if isinstance(bullet, dict):
+                                    b_text = bullet.get("text", "")
+                                    b_example = bullet.get("example")
+                                    st.markdown(f"- {b_text}")
+                                    if b_example:
+                                        st.code(b_example)
+                                else:
+                                    st.markdown(f"- {bullet}")
+                                    
+                        with col_narr:
+                            st.markdown("#### **Narration Script**")
+                            st.info(slide['narration'])
+                        
+                        st.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
                 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")

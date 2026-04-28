@@ -67,7 +67,7 @@ THEMES = {
 }
 
 
-def _get_font(size: int, bold: bool = False, emoji: bool = False) -> ImageFont.FreeTypeFont:
+def _get_font(size: int, bold: bool = False, emoji: bool = False, mono: bool = False) -> ImageFont.FreeTypeFont:
     """Try to get a nice system font, fallback to default."""
     candidates = []
     if emoji:
@@ -75,6 +75,13 @@ def _get_font(size: int, bold: bool = False, emoji: bool = False) -> ImageFont.F
             "C:/Windows/Fonts/seguiemj.ttf",  # Windows Emoji
             "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",  # Linux
             "/System/Library/Fonts/Apple Color Emoji.ttc",  # macOS
+        ]
+    elif mono:
+        candidates = [
+            "C:/Windows/Fonts/consola.ttf",   # Consolas
+            "C:/Windows/Fonts/cour.ttf",      # Courier New
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/System/Library/Fonts/Courier.ttc",
         ]
     elif bold:
         candidates = [
@@ -233,13 +240,21 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
             current_y += bullet_font_size + 10
             
         # Draw example if present and space allows
-        if b_example and (current_y + line_height + 20 < height - 30):
-            example_font = _get_font(max(20, bullet_font_size - 4))
-            wrapped_ex = textwrap.fill(f"↳ {b_example}", width=75)
-            draw.text((120, current_y + bullet_font_size + 4), wrapped_ex.split("\n")[0], font=example_font, fill=theme["accent"])
+        if b_example:
+            example_font = _get_font(max(16, bullet_font_size - 8), mono=True)
+            # Use a narrower width for code to keep it contained
+            wrapped_ex = textwrap.fill(f"{b_example}", width=65)
+            ex_lines = wrapped_ex.split("\n")
             
-            # Increase index offset so next bullet doesn't overlap
-            bullet_start_y += (bullet_font_size + 10)
+            for ex_line in ex_lines:
+                if (current_y + 20 < height - 40):
+                    draw.text((120, current_y + bullet_font_size + 4), ex_line, font=example_font, fill=theme["accent"])
+                    current_y += (bullet_font_size - 6)
+                else:
+                    break
+            
+            # Additional spacing after an example block
+            bullet_start_y += (len(ex_lines) * 6)
 
     # Progress bar at bottom
     progress = slide["slide_number"] / total_slides

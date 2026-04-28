@@ -112,8 +112,8 @@ def detect_structure(document_text: str, classification: dict, hints: list = Non
     Returns:
         dict with keys: total_chapters, total_sections, structure (list of chapters with sections)
     """
-    # Use up to ~30000 chars to capture full document structure
-    truncated = document_text[:30000]
+    # Use up to ~100,000 chars to capture full document structure (Gemini can handle this easily)
+    truncated = document_text[:100000]
 
     # Build context about detected hints
     hint_context = ""
@@ -259,7 +259,8 @@ def summarize_sections(document_text: str, structure: dict, classification: dict
         for s in all_sections
     )
 
-    truncated = document_text[:25000]
+    # Use up to ~100,000 chars for summarization
+    truncated = document_text[:100000]
 
     prompt = f"""You are an expert {subject} educator using a {teaching_approach} teaching approach.
 
@@ -277,7 +278,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
       "key_ideas": [
         {{
           "idea": "First key idea — must include specific facts from the text.",
-          "example": "Exact CLI command, code snippet, or concrete example. Null if none exists."
+          "example": "FULL VERBATIM code block, CLI command, or concrete example. Do NOT truncate. Include the entire logic block if available."
         }}
       ],
       "important_terms": ["term1", "term2", "term3"],
@@ -287,13 +288,15 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
 }}
 
 Rules:
-- Extract 3-5 key ideas per section.
-- CRITICAL: NO ABSTRACTION. If the text provides a specific CLI command (e.g. `chmod 755`), code snippet, formula, or exact data point, you MUST INCLUDE IT VERBATIM in the key idea.
+- Extract 4-6 key ideas per section.
+- CRITICAL: NO ABSTRACTION. If the text provides a specific code snippet (e.g. a full C function or loop), a CLI command (e.g. `chmod 755`), or a formula, you MUST INCLUDE IT VERBATIM.
+- DO NOT summarize code. Capture the entire relevant block.
 - Do NOT write generic summaries like "This section discusses terminal commands." Instead write: "Use `ls -la` to view all files including hidden ones."
 - Key ideas should be informative enough to stand alone as a learning point.
 - For {subject}: focus on {_get_focus_area(subject)}
-- Important terms should be domain-specific vocabulary
-- Complexity should reflect the difficulty of THAT section
+- Important terms should be domain-specific vocabulary.
+- Complexity should reflect the difficulty of THAT section.
+- If a section contains exercises, include the specific questions or problems.
 
 Document content:
 ---
@@ -429,7 +432,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "bullets": [
         {{
           "text": "The main point to display on the slide",
-          "example": "The specific command, code snippet, or concrete example. Null if none."
+          "example": "The FULL verbatim code snippet, command, or logic block from the source. NO TRUNCATION."
         }}
       ],
       "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud."
@@ -438,17 +441,19 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
 }}
 
 Slide layout rules:
-- Slide 1: type "intro" — overview of the entire document, what the student will learn. Mention at least 2 specific goals.
-- Slide 2: type "toc" — table of contents showing chapters and sections covered.
-- Slides 3 to {total_slides - 1}: type "content" — one slide per major section.
-- Slide {total_slides}: type "summary" — key takeaways from ALL sections.
+- Slide 1: type "intro" — A high-impact opening. Set the stage, hook the audience, and state 3 clear learning objectives.
+- Slide 2: type "toc" — A clear roadmap of the journey ahead.
+- Slides 3 to {total_slides - 1}: type "content" — One slide per major section.
+- Slide {total_slides}: type "summary" — Synthesis of key takeaways and a "Call to Action" or "Next Steps".
+- CRITICAL: NO EMPTY SLIDES. Every slide MUST have at least 3 bullet points and a full narration script.
 - CRITICAL: NO VAGUE CONTENT. Each bullet point MUST contain a concrete fact, a specific step, an exact CLI command (e.g., `kubectl get pods`), or a technical detail from the section summaries.
 - If the subject is technical or DevSecOps, you MUST include the exact commands, code snippets, or configuration examples in the bullets.
 - DO NOT say "Learn how to manage files". DO say "Manage files using the `mv` and `cp` commands."
 - Each content slide should have 3-5 bullet points.
-- Narration should be natural, engaging, and EXPLAIN the technical details in the bullets.
+- Narration should be authoritative yet engaging, professional, and explain the "WHY" behind the technical details.
 - For {subject}: {_get_narration_style(subject)}
-- Reference specific terms and ideas from the section summaries"""
+- Reference specific terms and ideas from the section summaries.
+- If a slide is about "Exercises", include the actual questions in the bullets."""
 
     raw = _call_gemini(prompt)
     result = _parse_json_response(raw)
@@ -602,9 +607,3 @@ def generate_infographic_image(description: str, lesson_plan: dict) -> Optional[
     imgs = generate_infographic_images([description], lesson_plan)
     return imgs[0] if imgs else None
 
-def generate_slide_script(document_text: str) -> dict:
-    """Legacy full pipeline wrapper."""
-    classification = classify_document(document_text)
-    structure = detect_structure(document_text, classification)
-    summaries = summarize_sections(document_text, structure, classification)
-    return generate_lesson_plan(classification, structure, summaries, document_text)
