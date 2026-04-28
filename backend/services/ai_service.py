@@ -429,6 +429,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "chapter_ref": "Which chapter this slide covers (or 'all' for intro/toc/summary)",
       "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
+      "image_query": "A descriptive search query for a professional diagram, icon, or photo relevant to this slide (e.g. 'binary search tree visualization diagram professional')",
       "bullets": [
         {{
           "text": "The main point to display on the slide",
@@ -527,21 +528,23 @@ def generate_infographic_descriptions(document_text: str, lesson_plan: dict) -> 
     if not chapters:
         chapters = ["Overview"]
 
-    prompt = f"""You are a professional graphic designer and educator specializing in {subject}.
+    prompt = f"""You are a professional graphic designer and master educator specializing in {subject}.
     
 Based on this document and lesson plan titled "{lesson_plan.get('title', 'Training Material')}", 
-write a series of detailed image generation prompts for professional educational infographics.
+write a series of HIGH-FIDELITY image generation prompts for professional educational infographics.
 
 We need one infographic for each of these chapters/sections: {chapters}
 
-The infographics should:
-- Have a clean, modern design with a dark or vibrant background
-- Visually summarize the key concepts of THAT SPECIFIC chapter
-- Include icons, charts, or visual metaphors relevant to {subject}
-- Use a color palette that feels premium and educational
+The infographics MUST:
+- Look like a premium "Internet-Pro" asset (e.g., from a top-tier tech blog or professional textbook).
+- Incorporate REALISTIC photographic elements (e.g. professional stock photos of hardware, people in a lab, or urban environments).
+- Use DETAILED technical diagrams (e.g. 3D exploded views, high-fidelity flowcharts, or system architectures).
+- Have a clean, modern design with a dark or vibrant background.
+- Visually summarize the key concepts of THAT SPECIFIC chapter using icons and data visualization.
+- Use a color palette that feels premium (e.g. deep teals, electric purples, or slate blues).
 
 Return ONLY a valid JSON array of strings (the prompts), no markdown fences.
-Example: ["Prompt 1...", "Prompt 2..."]
+Example: ["A professional high-fidelity infographic showing a 3D cutaway of a server rack with realistic lighting, combined with a technical network architecture diagram, deep blue theme..."]
 
 Document excerpt:
 {truncated[:4000]}
@@ -568,30 +571,34 @@ def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> l
     client = _get_client()
     images = []
 
-    # Use only the first description to avoid 429 quota spikes
+    # Use all descriptions (up to a reasonable limit to avoid 429s)
     if not descriptions:
         return []
         
-    desc = descriptions[0]
-    full_prompt = (
-        f"Create a professional educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
-        f"{desc} "
-        f"Style: modern, clean, high-contrast, suitable for corporate training. "
-        f"Make it visually stunning with icons and data visualization elements."
-    )
-
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=full_prompt,
+    for desc in descriptions[:3]:  # Limit to 3 parts to be safe with quota
+        full_prompt = (
+            f"Create a professional high-fidelity educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
+            f"{desc} "
+            f"Style: clean, modern, minimalist, high-contrast. "
+            f"IMPORTANT: NO GARBLED TEXT. Use simple icons and clear symbols. Avoid complex text labels inside the image. "
+            f"Focus on visual metaphors and stunning technical layouts."
         )
 
-        for part in response.candidates[0].content.parts:
-            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                images.append(part.inline_data.data)
-                break
-    except Exception as e:
-        logger.warning(f"Infographic generation failed: {e}")
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=full_prompt,
+            )
+
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                    images.append(part.inline_data.data)
+                    break
+            
+            # Small delay to avoid 429
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Infographic generation part failed: {e}")
                 
     return images
 
