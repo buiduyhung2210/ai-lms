@@ -27,16 +27,16 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_gemini(prompt: str, max_retries: int = 3) -> str:
-    """Helper to call Gemini and return raw text response with retry logic."""
+def _call_gemini(prompt: str, max_retries: int = 5) -> str:
+    """Helper to call Gemini and return raw text response with robust retry logic."""
     client = _get_client()
     
-    # List of models to try in order (as fallback if the latest is busy)
-    model_options = ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash-exp"]
+    # Standardized model names (avoiding '-latest' which can cause 404 in some environments)
+    model_options = ["gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash"]
     
     for attempt in range(max_retries):
         try:
-            # Try models in sequence if one fails with demand issues
+            # Rotate models to find one with available quota
             model_to_use = model_options[attempt % len(model_options)]
             
             response = client.models.generate_content(
@@ -46,22 +46,27 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> str:
             return response.text.strip()
             
         except Exception as e:
-            # Check for 503, 429 or quota/demand errors
-            error_msg = str(e)
-            if any(x in error_msg.lower() for x in ["503", "429", "high demand", "resourceexhausted", "quota"]):
-                # If it's a quota error, wait much longer
-                is_quota = "429" in error_msg or "quota" in error_msg.lower() or "resourceexhausted" in error_msg.lower()
-                wait_time = 30 if is_quota else (attempt + 1) * 3
+            error_msg = str(e).lower()
+            # Catch Busy (503), Quota (429), or transient Model Not Found (404)
+            is_retryable = any(x in error_msg for x in ["503", "429", "high demand", "resourceexhausted", "quota", "404", "not found"])
+            
+            if is_retryable:
+                # If it's a quota error, wait progressively longer (30s, 45s, 60s...)
+                is_quota = any(x in error_msg for x in ["429", "quota", "resourceexhausted"])
+                if is_quota:
+                    wait_time = 30 + (attempt * 15) 
+                else:
+                    wait_time = (attempt + 1) * 5
                 
-                logger.warning(f"Gemini {'Quota' if is_quota else 'Busy'} (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
+                logger.warning(f"Gemini API issue (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
                 time.sleep(wait_time)
             else:
-                # If it's a different error, raise it immediately
-                logger.error(f"Gemini call failed with unexpected error: {e}")
+                # Fatal error (e.g., auth, invalid prompt)
+                logger.error(f"Gemini call failed with fatal error: {e}")
                 raise e
                 
-    # Final attempt fallback if loop finishes
-    return client.models.generate_content(model="gemini-1.5-flash-latest", contents=prompt).text.strip()
+    # Final effort using the most standard model name
+    return client.models.generate_content(model="gemini-1.5-flash", contents=prompt).text.strip()
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -614,10 +619,10 @@ def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> l
                 break
 
             except Exception as e:
-                error_msg = str(e)
-                if any(x in error_msg.lower() for x in ["503", "429", "quota", "resourceexhausted"]):
-                    logger.warning(f"Gemini image busy/quota, waiting 30s for retry...")
-                    time.sleep(30)
+                error_msg = str(e).lower()
+                if any(x in error_msg for x in ["503", "429", "quota", "resourceexhausted", "404", "not found"]):
+                    logger.warning(f"Gemini image API issue, waiting 45s for retry...")
+                    time.sleep(45)
                     continue
                 logger.warning(f"Gemini image generation failed for a segment: {e}")
                 break
