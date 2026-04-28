@@ -129,22 +129,6 @@ with st.sidebar:
     
     # Subject type selector
     st.write("### Document Settings")
-    # Model Selection
-    selected_model_name = st.selectbox(
-        "Select AI Model",
-        options=[
-            "Gemini 3 Flash",
-            "Gemini 2.5 Flash",
-            "Gemini 2 Flash",
-            "Gemini 2 Flash Lite",
-            "Gemini 1.5 Flash",
-            "Gemini 1.5 Pro",
-            "Gemma 3 27B"
-        ],
-        index=0,
-        help="Choose the model variant for generation. Note: Quotas vary by model."
-    )
-    
     subject_hint = st.selectbox(
         "Subject Type",
         options=SUBJECT_OPTIONS,
@@ -199,7 +183,7 @@ if uploaded_file is not None:
                     
                     # ── Stage 1: Classify Document ──
                     status.update(label="Stage 1/4 — Classifying document type...", state="running")
-                    classification = classify_document(document_text, model_name=selected_model_name)
+                    classification = classify_document(document_text, subject_hint)
                     status.update(
                         label=f"Stage 1/4 — Classified: {classification.get('subject', '?')} / {classification.get('sub_field', '?')} ({classification.get('difficulty_level', '?')})",
                         state="running"
@@ -207,7 +191,7 @@ if uploaded_file is not None:
                     
                     # ── Stage 2: Detect Structure ──
                     status.update(label="Stage 2/4 — Detecting chapters & sections...", state="running")
-                    structure = detect_structure(document_text, classification, doc_hints, model_name=selected_model_name)
+                    structure = detect_structure(document_text, classification, doc_hints)
                     status.update(
                         label=f"Stage 2/4 — Found {structure.get('total_chapters', 0)} chapters, {structure.get('total_sections', 0)} sections",
                         state="running"
@@ -215,7 +199,7 @@ if uploaded_file is not None:
                     
                     # ── Stage 3: Summarize Sections ──
                     status.update(label="Stage 3/4 — Summarizing key ideas per section...", state="running")
-                    section_summaries = summarize_sections(document_text, structure, classification, model_name=selected_model_name)
+                    section_summaries = summarize_sections(document_text, structure, classification)
                     total_ideas = sum(len(s.get("key_ideas", [])) for s in section_summaries.get("sections", []))
                     status.update(
                         label=f"Stage 3/4 — Extracted {total_ideas} key ideas across {len(section_summaries.get('sections', []))} sections",
@@ -224,7 +208,7 @@ if uploaded_file is not None:
                     
                     # ── Stage 4: Generate Lesson Plan ──
                     status.update(label="Stage 4/4 — Generating lesson plan...", state="running")
-                    lesson_plan = generate_lesson_plan(classification, structure, section_summaries, document_text, model_name=selected_model_name)
+                    lesson_plan = generate_lesson_plan(classification, structure, section_summaries, document_text)
                     slide_count = len(lesson_plan.get("slides", []))
                     status.update(
                         label=f"Stage 4/4 — Created {slide_count}-slide lesson plan",
@@ -233,8 +217,8 @@ if uploaded_file is not None:
                     
                     # ── Generate Infographics ──
                     status.update(label="Designing and generating infographics...", state="running")
-                    infographic_descs = generate_infographic_descriptions(document_text, lesson_plan, model_name=selected_model_name)
-                    images_list = generate_infographic_images(infographic_descs, lesson_plan, model_name=selected_model_name)
+                    infographic_descs = generate_infographic_descriptions(document_text, lesson_plan)
+                    images_list = generate_infographic_images(infographic_descs, lesson_plan)
                     
                     if not images_list:
                         status.update(label="Image generation failed, building fallback...", state="running")

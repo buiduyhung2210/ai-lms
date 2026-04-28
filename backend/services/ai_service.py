@@ -20,36 +20,18 @@ from google.genai.errors import APIError
 logger = logging.getLogger(__name__)
 
 
-# Map user-friendly names to actual Gemini API IDs
-MODEL_MAP = {
-    "Gemini 3 Flash": "gemini-2.0-flash",
-    "Gemini 2.5 Flash": "gemini-2.0-flash",
-    "Gemini 2 Flash": "gemini-2.0-flash",
-    "Gemini 2 Flash Lite": "gemini-2.0-flash-lite",
-    "Gemini 1.5 Flash": "gemini-1.5-flash",
-    "Gemini 1.5 Pro": "gemini-1.5-pro",
-    "Gemma 3 27B": "gemma-3-27b",
-}
-
 def _get_client():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set in environment")
     return genai.Client(api_key=api_key)
 
-def _get_model_id(model_name: Optional[str] = None) -> str:
-    """Translate UI model name to API ID."""
-    if not model_name:
-        return "gemini-2.0-flash"
-    return MODEL_MAP.get(model_name, model_name) # Fallback to literal if not in map
 
-
-def _call_gemini(prompt: str, model_name: Optional[str] = None) -> str:
+def _call_gemini(prompt: str, max_chars: int = 0) -> str:
     """Helper to call Gemini and return raw text response."""
     client = _get_client()
-    model_id = _get_model_id(model_name)
     response = client.models.generate_content(
-        model=model_id,
+        model="gemini-flash-latest",
         contents=prompt,
     )
     return response.text.strip()
@@ -72,7 +54,7 @@ def _parse_json_response(raw: str) -> dict:
 # Stage 1: Document Classification
 # ---------------------------------------------------------------------------
 
-def classify_document(document_text: str, user_subject_hint: str = "Auto-detect", model_name: Optional[str] = None) -> dict:
+def classify_document(document_text: str, user_subject_hint: str = "Auto-detect") -> dict:
     """
     Classify the document's subject, difficulty, and content style.
 
@@ -108,7 +90,7 @@ Document excerpt:
 {sample}
 ---"""
 
-    raw = _call_gemini(prompt, model_name=model_name)
+    raw = _call_gemini(prompt)
     result = _parse_json_response(raw)
     logger.info(f"Document classified: {result.get('subject')} / {result.get('sub_field')}")
     return result
@@ -118,7 +100,7 @@ Document excerpt:
 # Stage 2: Structure Detection
 # ---------------------------------------------------------------------------
 
-def detect_structure(document_text: str, classification: dict, hints: list = None, model_name: Optional[str] = None) -> dict:
+def detect_structure(document_text: str, classification: dict, hints: list = None) -> dict:
     """
     Detect the chapter/section structure of the document.
 
@@ -190,7 +172,7 @@ Document content:
 {truncated}
 ---"""
 
-    raw = _call_gemini(prompt, model_name=model_name)
+    raw = _call_gemini(prompt)
     result = _parse_json_response(raw)
     logger.info(f"Structure detected: {result.get('total_chapters')} chapters, {result.get('total_sections')} sections")
     return result
@@ -241,7 +223,7 @@ def _get_subject_guidance(subject: str) -> str:
 # Stage 3: Section Summarization
 # ---------------------------------------------------------------------------
 
-def summarize_sections(document_text: str, structure: dict, classification: dict, model_name: Optional[str] = None) -> dict:
+def summarize_sections(document_text: str, structure: dict, classification: dict) -> dict:
     """
     Summarize key ideas for each section detected in the document.
     Batches multiple sections per API call for efficiency.
@@ -321,7 +303,7 @@ Document content:
 {truncated}
 ---"""
 
-    raw = _call_gemini(prompt, model_name=model_name)
+    raw = _call_gemini(prompt)
     result = _parse_json_response(raw)
     logger.info(f"Summarized {len(result.get('sections', []))} sections")
     return result
@@ -359,7 +341,6 @@ def generate_lesson_plan(
     structure: dict,
     section_summaries: dict,
     document_text: str,
-    model_name: Optional[str] = None
 ) -> dict:
     """
     Generate a rich, context-aware lesson plan using all upstream analysis.
@@ -474,7 +455,7 @@ Slide layout rules:
 - Reference specific terms and ideas from the section summaries.
 - If a slide is about "Exercises", include the actual questions in the bullets."""
 
-    raw = _call_gemini(prompt, model_name=model_name)
+    raw = _call_gemini(prompt)
     result = _parse_json_response(raw)
 
     # Inject analysis metadata into the result
@@ -508,11 +489,13 @@ def _get_narration_style(subject: str) -> str:
 # Legacy wrapper (for backward compatibility)
 # ---------------------------------------------------------------------------
 
-def generate_slide_script(document_text: str, model_name: Optional[str] = None) -> dict:
+def generate_slide_script(document_text: str) -> dict:
     """
     Legacy wrapper — runs the full 4-stage pipeline.
     Kept for backward compatibility with existing code.
     """
+    classification = classify_document(document_text)
+    structure = detect_structure(document_text, classification)
     summaries = summarize_sections(document_text, structure, classification)
     return generate_lesson_plan(classification, structure, summaries, document_text)
 
@@ -521,7 +504,7 @@ def generate_slide_script(document_text: str, model_name: Optional[str] = None) 
 # Infographic functions (unchanged)
 # ---------------------------------------------------------------------------
 
-def generate_infographic_descriptions(document_text: str, lesson_plan: dict, model_name: Optional[str] = None) -> list[str]:
+def generate_infographic_descriptions(document_text: str, lesson_plan: dict) -> list[str]:
     """
     Use Gemini to craft multiple detailed infographic visual descriptions, 
     one for each major division in the content.
@@ -569,7 +552,7 @@ Lesson title: {lesson_plan.get('title')}
 Topic: {lesson_plan.get('topic')}
 """
 
-    raw = _call_gemini(prompt, model_name=model_name)
+    raw = _call_gemini(prompt)
     try:
         descriptions = _parse_json_response(raw)
         if isinstance(descriptions, list):
@@ -579,7 +562,7 @@ Topic: {lesson_plan.get('topic')}
         return [raw]
 
 
-def generate_infographic_images(descriptions: list[str], lesson_plan: dict, model_name: Optional[str] = None) -> list[bytes]:
+def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> list[bytes]:
     """
     Generate infographic PNGs using Gemini image generation.
     Simplified to handle quota better.
@@ -600,10 +583,9 @@ def generate_infographic_images(descriptions: list[str], lesson_plan: dict, mode
             f"Focus on visual metaphors and stunning technical layouts."
         )
 
-        model_id = _get_model_id(model_name)
         try:
             response = client.models.generate_content(
-                model=model_id,
+                model="gemini-2.0-flash",
                 contents=full_prompt,
             )
 
