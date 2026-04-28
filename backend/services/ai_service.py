@@ -13,7 +13,9 @@ import json
 import base64
 import logging
 from typing import Optional
+import time
 from google import genai
+from google.genai.errors import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +27,38 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_gemini(prompt: str, max_chars: int = 0) -> str:
-    """Helper to call Gemini and return raw text response."""
+def _call_gemini(prompt: str, max_retries: int = 3) -> str:
+    """Helper to call Gemini and return raw text response with retry logic."""
     client = _get_client()
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
-    return response.text.strip()
+    
+    # List of models to try in order (as fallback if the latest is busy)
+    model_options = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+    
+    for attempt in range(max_retries):
+        try:
+            # Try models in sequence if one fails with demand issues
+            model_to_use = model_options[attempt % len(model_options)]
+            
+            response = client.models.generate_content(
+                model=model_to_use,
+                contents=prompt,
+            )
+            return response.text.strip()
+            
+        except Exception as e:
+            # Check for 503 or demand errors
+            error_msg = str(e)
+            if "503" in error_msg or "high demand" in error_msg.lower() or "ResourceExhausted" in error_msg:
+                wait_time = (attempt + 1) * 2  # 2s, 4s, 6s...
+                logger.warning(f"Gemini busy (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
+                time.sleep(wait_time)
+            else:
+                # If it's a different error, raise it immediately
+                logger.error(f"Gemini call failed with unexpected error: {e}")
+                raise e
+                
+    # Final attempt fallback if loop finishes
+    return client.models.generate_content(model="gemini-1.5-flash", contents=prompt).text.strip()
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -529,19 +555,22 @@ def generate_infographic_image(description: str, lesson_plan: dict) -> Optional[
         f"Make it visually stunning with icons and data visualization elements."
     )
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
-            contents=full_prompt,
-        )
+    for attempt in range(2):  # Try twice for images
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",  # Try 2.0 first for images if available
+                contents=full_prompt,
+            )
 
-        for part in response.candidates[0].content.parts:
-            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                return part.inline_data.data  # raw bytes
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                    return part.inline_data.data  # raw bytes
 
-        logger.warning("No image data returned from Gemini image generation")
-        return None
-
-    except Exception as e:
-        logger.warning(f"Gemini image generation failed: {e}. Will use fallback.")
-        return None
+        except Exception as e:
+            if "503" in str(e) and attempt == 0:
+                logger.warning(f"Gemini image busy, retrying once...")
+                time.sleep(3)
+                continue
+            logger.warning(f"Gemini image generation failed: {e}. Will use fallback.")
+            return None
+    return None
