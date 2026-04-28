@@ -275,10 +275,10 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
       "section_id": "1.1",
       "title": "Section title",
       "key_ideas": [
-        {
+        {{
           "idea": "First key idea — must include specific facts from the text.",
           "example": "Exact CLI command, code snippet, or concrete example. Null if none exists."
-        }
+        }}
       ],
       "important_terms": ["term1", "term2", "term3"],
       "complexity": "introductory | intermediate | advanced"
@@ -427,10 +427,10 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
       "bullets": [
-        {
+        {{
           "text": "The main point to display on the slide",
           "example": "The specific command, code snippet, or concrete example. Null if none."
-        }
+        }}
       ],
       "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud."
     }}
