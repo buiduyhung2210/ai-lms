@@ -13,7 +13,9 @@ import json
 import base64
 import logging
 from typing import Optional
+import time
 from google import genai
+from google.genai.errors import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +27,38 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_gemini(prompt: str, max_chars: int = 0) -> str:
-    """Helper to call Gemini and return raw text response."""
+def _call_gemini(prompt: str, max_retries: int = 3) -> str:
+    """Helper to call Gemini and return raw text response with retry logic."""
     client = _get_client()
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
-    return response.text.strip()
+    
+    # List of models to try in order (as fallback if the latest is busy)
+    model_options = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+    
+    for attempt in range(max_retries):
+        try:
+            # Try models in sequence if one fails with demand issues
+            model_to_use = model_options[attempt % len(model_options)]
+            
+            response = client.models.generate_content(
+                model=model_to_use,
+                contents=prompt,
+            )
+            return response.text.strip()
+            
+        except Exception as e:
+            # Check for 503 or demand errors
+            error_msg = str(e)
+            if "503" in error_msg or "high demand" in error_msg.lower() or "ResourceExhausted" in error_msg:
+                wait_time = (attempt + 1) * 2  # 2s, 4s, 6s...
+                logger.warning(f"Gemini busy (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
+                time.sleep(wait_time)
+            else:
+                # If it's a different error, raise it immediately
+                logger.error(f"Gemini call failed with unexpected error: {e}")
+                raise e
+                
+    # Final attempt fallback if loop finishes
+    return client.models.generate_content(model="gemini-1.5-flash", contents=prompt).text.strip()
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -273,9 +299,10 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
       "section_id": "1.1",
       "title": "Section title",
       "key_ideas": [
-        "First key idea — clear, concise, one sentence",
-        "Second key idea",
-        "Third key idea"
+        {
+          "idea": "First key idea — must include specific facts from the text.",
+          "example": "Exact CLI command, code snippet, or concrete example. Null if none exists."
+        }
       ],
       "important_terms": ["term1", "term2", "term3"],
       "complexity": "introductory | intermediate | advanced"
@@ -285,7 +312,8 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
 
 Rules:
 - Extract 3-5 key ideas per section.
-- CRITICAL: NO ABSTRACTION. If the text provides a specific formula, algorithm step, or data point, INCLUDE IT.
+- CRITICAL: NO ABSTRACTION. If the text provides a specific CLI command (e.g. `chmod 755`), code snippet, formula, or exact data point, you MUST INCLUDE IT VERBATIM in the key idea.
+- Do NOT write generic summaries like "This section discusses terminal commands." Instead write: "Use `ls -la` to view all files including hidden ones."
 - Key ideas should be informative enough to stand alone as a learning point.
 - For {subject}: focus on {_get_focus_area(subject)}
 - Important terms should be domain-specific vocabulary
@@ -306,7 +334,9 @@ def _get_focus_area(subject: str) -> str:
     """Return what to focus on per subject."""
     focus = {
         "Mathematics": "formulas, theorems, proofs, and step-by-step problem-solving methods",
-        "Computer Science": "algorithms, data structures, code patterns, and system design principles",
+        "Computer Science": "exact CLI commands, verbatim code snippets, algorithms, data structures, and syntax examples",
+        "DevSecOps": "specific CLI commands, configuration snippets (e.g. YAML, JSON), pipeline stages, and security tool usage",
+        "DevOps": "specific CLI commands, configuration snippets (e.g. YAML, JSON), pipeline stages, and security tool usage",
         "Science": "hypotheses, experimental evidence, causal relationships, and scientific laws",
         "Business": "strategies, frameworks, metrics, and actionable recommendations",
         "Law": "legal principles, precedents, statutory interpretations, and procedural rules",
@@ -360,7 +390,19 @@ def generate_lesson_plan(
     # Build section context
     sections_context = ""
     for sec in section_summaries.get("sections", []):
-        ideas = "\n    ".join(f"- {idea}" for idea in sec.get("key_ideas", []))
+        ideas_list = []
+        for idea_obj in sec.get("key_ideas", []):
+            if isinstance(idea_obj, dict):
+                idea_text = idea_obj.get("idea", "")
+                example_text = idea_obj.get("example")
+                if example_text:
+                    ideas_list.append(f"- {idea_text} (Example: {example_text})")
+                else:
+                    ideas_list.append(f"- {idea_text}")
+            else:
+                ideas_list.append(f"- {idea_obj}")
+        
+        ideas = "\n    ".join(ideas_list)
         terms = ", ".join(sec.get("important_terms", []))
         sections_context += f"""
   Section {sec.get('section_id', '?')}: {sec.get('title', 'Untitled')} [{sec.get('complexity', 'intermediate')}]
@@ -408,7 +450,12 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "chapter_ref": "Which chapter this slide covers (or 'all' for intro/toc/summary)",
       "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
-      "bullets": ["bullet 1", "bullet 2", "bullet 3"],
+      "bullets": [
+        {
+          "text": "The main point to display on the slide",
+          "example": "The specific command, code snippet, or concrete example. Null if none."
+        }
+      ],
       "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud."
     }}
   ]
@@ -419,8 +466,9 @@ Slide layout rules:
 - Slide 2: type "toc" — table of contents showing chapters and sections covered.
 - Slides 3 to {total_slides - 1}: type "content" — one slide per major section.
 - Slide {total_slides}: type "summary" — key takeaways from ALL sections.
-- CRITICAL: NO VAGUE CONTENT. Each bullet point MUST contain a concrete fact, a specific step, or a technical detail from the section summaries.
-- DO NOT say "Learn about X". DO say "X is a Y that performs Z by using A."
+- CRITICAL: NO VAGUE CONTENT. Each bullet point MUST contain a concrete fact, a specific step, an exact CLI command (e.g., `kubectl get pods`), or a technical detail from the section summaries.
+- If the subject is technical or DevSecOps, you MUST include the exact commands, code snippets, or configuration examples in the bullets.
+- DO NOT say "Learn how to manage files". DO say "Manage files using the `mv` and `cp` commands."
 - Each content slide should have 3-5 bullet points.
 - Narration should be natural, engaging, and EXPLAIN the technical details in the bullets.
 - For {subject}: {_get_narration_style(subject)}
@@ -475,73 +523,98 @@ def generate_slide_script(document_text: str) -> dict:
 # Infographic functions (unchanged)
 # ---------------------------------------------------------------------------
 
-def generate_infographic_description(document_text: str, lesson_plan: dict) -> str:
+def generate_infographic_descriptions(document_text: str, lesson_plan: dict) -> list[str]:
     """
-    Use Gemini to craft a detailed infographic visual description.
+    Use Gemini to craft multiple detailed infographic visual descriptions, 
+    one for each major division in the content.
     """
     client = _get_client()
-    truncated = document_text[:6000]
+    truncated = document_text[:10000]
 
     subject = lesson_plan.get("subject", lesson_plan.get("topic", "Training"))
+    slides = lesson_plan.get("slides", [])
+    
+    # Group slides by chapter for per-chapter infographics
+    chapters = []
+    current_chapter = None
+    for slide in slides:
+        c_ref = slide.get("chapter_ref")
+        if c_ref and c_ref != "all" and c_ref != current_chapter:
+            chapters.append(c_ref)
+            current_chapter = c_ref
+            
+    if not chapters:
+        chapters = ["Overview"]
 
     prompt = f"""You are a professional graphic designer and educator specializing in {subject}.
     
 Based on this document and lesson plan titled "{lesson_plan.get('title', 'Training Material')}", 
-write a detailed image generation prompt for a beautiful, professional educational infographic.
+write a series of detailed image generation prompts for professional educational infographics.
 
-The infographic should:
+We need one infographic for each of these chapters/sections: {chapters}
+
+The infographics should:
 - Have a clean, modern design with a dark or vibrant background
-- Visually summarize the TOP 5 key concepts from the document
+- Visually summarize the key concepts of THAT SPECIFIC chapter
 - Include icons, charts, or visual metaphors relevant to {subject}
 - Use a color palette that feels premium and educational
-- Have clear section labels and hierarchy
-- Look like something from a top consulting firm or educational platform
 
-Write the prompt in 3-4 sentences, describing the layout, visual elements, colors, and content.
-Be very specific about what visual elements should appear.
+Return ONLY a valid JSON array of strings (the prompts), no markdown fences.
+Example: ["Prompt 1...", "Prompt 2..."]
 
 Document excerpt:
-{truncated[:3000]}
+{truncated[:4000]}
 
 Lesson title: {lesson_plan.get('title')}
 Topic: {lesson_plan.get('topic')}
-Key slide headings: {[s['heading'] for s in lesson_plan.get('slides', [])]}"""
+"""
 
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
-    return response.text.strip()
+    raw = _call_gemini(prompt)
+    try:
+        descriptions = _parse_json_response(raw)
+        if isinstance(descriptions, list):
+            return descriptions
+        return [raw]
+    except:
+        return [raw]
 
 
-def generate_infographic_image(description: str, lesson_plan: dict) -> Optional[bytes]:
+def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> list[bytes]:
     """
-    Generate an infographic PNG using Gemini image generation.
-    Returns raw PNG bytes or None if generation fails.
+    Generate multiple infographic PNGs using Gemini image generation.
+    Returns a list of raw PNG bytes.
     """
     client = _get_client()
+    images = []
 
-    full_prompt = (
-        f"Create a professional educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
-        f"{description} "
-        f"Style: modern, clean, high-contrast, suitable for corporate training. "
-        f"Include the title '{lesson_plan.get('title')}' prominently at the top. "
-        f"Make it visually stunning with icons and data visualization elements."
-    )
-
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
-            contents=full_prompt,
+    for desc in descriptions[:3]:  # Limit to 3 images for now to save time/quota
+        full_prompt = (
+            f"Create a professional educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
+            f"{desc} "
+            f"Style: modern, clean, high-contrast, suitable for corporate training. "
+            f"Make it visually stunning with icons and data visualization elements."
         )
 
-        for part in response.candidates[0].content.parts:
-            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                return part.inline_data.data  # raw bytes
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=full_prompt,
+                )
 
-        logger.warning("No image data returned from Gemini image generation")
-        return None
+                for part in response.candidates[0].content.parts:
+                    if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                        images.append(part.inline_data.data)
+                        break
+                else:
+                    continue
+                break
 
-    except Exception as e:
-        logger.warning(f"Gemini image generation failed: {e}. Will use fallback.")
-        return None
+            except Exception as e:
+                if "503" in str(e) and attempt == 0:
+                    time.sleep(3)
+                    continue
+                logger.warning(f"Gemini image generation failed for a segment: {e}")
+                break
+                
+    return images

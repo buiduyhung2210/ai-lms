@@ -78,6 +78,7 @@ def _get_font(size: int, bold: bool = False, emoji: bool = False) -> ImageFont.F
         ]
     elif bold:
         candidates = [
+            "C:/Windows/Fonts/segoeuib.ttf",  # Segoe UI Bold
             "C:/Windows/Fonts/arialbd.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -85,6 +86,7 @@ def _get_font(size: int, bold: bool = False, emoji: bool = False) -> ImageFont.F
         ]
     else:
         candidates = [
+            "C:/Windows/Fonts/segoeui.ttf",   # Segoe UI
             "C:/Windows/Fonts/arial.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
@@ -201,6 +203,14 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
     bullet_start_y = underline_y + 30
 
     for i, bullet in enumerate(bullets[:max_bullets]):
+        # Handle both old string format and new object format
+        if isinstance(bullet, dict):
+            b_text = bullet.get("text", "")
+            b_example = bullet.get("example")
+        else:
+            b_text = str(bullet)
+            b_example = None
+
         y = bullet_start_y + i * line_height
         if y + line_height > height - 30:
             break  # Don't overflow past slide bottom
@@ -211,14 +221,25 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         draw.ellipse([dot_x - 8, dot_y - 8, dot_x + 8, dot_y + 8], fill=theme["bullet_dot"])
 
         # Bullet text (wrap at ~70 chars)
-        wrapped = textwrap.fill(bullet, width=70)
+        wrapped = textwrap.fill(b_text, width=70)
         first_line = wrapped.split("\n")[0]
         draw.text((100, y), first_line, font=bullet_font, fill=theme["text"])
 
         # If there's a second line and space allows
-        if "\n" in wrapped and (y + line_height + 20 < height - 30):
+        current_y = y
+        if "\n" in wrapped and (current_y + line_height + 20 < height - 30):
             second_line = wrapped.split("\n")[1]
-            draw.text((100, y + bullet_font_size + 4), second_line, font=_get_font(max(20, bullet_font_size - 4)), fill=theme["text"])
+            draw.text((100, current_y + bullet_font_size + 4), second_line, font=_get_font(max(20, bullet_font_size - 4)), fill=theme["text"])
+            current_y += bullet_font_size + 10
+            
+        # Draw example if present and space allows
+        if b_example and (current_y + line_height + 20 < height - 30):
+            example_font = _get_font(max(20, bullet_font_size - 4))
+            wrapped_ex = textwrap.fill(f"↳ {b_example}", width=75)
+            draw.text((120, current_y + bullet_font_size + 4), wrapped_ex.split("\n")[0], font=example_font, fill=theme["accent"])
+            
+            # Increase index offset so next bullet doesn't overlap
+            bullet_start_y += (bullet_font_size + 10)
 
     # Progress bar at bottom
     progress = slide["slide_number"] / total_slides
@@ -289,7 +310,11 @@ def build_fallback_infographic(lesson_plan: dict) -> bytes:
         bullet_font = _get_font(24)
         bullets = slide.get("bullets", [])
         for j, bullet in enumerate(bullets[:2]):
-            wrapped = textwrap.fill(bullet, width=60)
+            if isinstance(bullet, dict):
+                b_text = bullet.get("text", "")
+            else:
+                b_text = str(bullet)
+            wrapped = textwrap.fill(b_text, width=60)
             first_line = wrapped.split("\n")[0]
             draw.text((135, card_y + 70 + j * 40), f"• {first_line}", font=bullet_font, fill=theme["text"])
 
