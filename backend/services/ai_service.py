@@ -32,7 +32,7 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> str:
     client = _get_client()
     
     # List of models to try in order (as fallback if the latest is busy)
-    model_options = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+    model_options = ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash-exp"]
     
     for attempt in range(max_retries):
         try:
@@ -61,7 +61,7 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> str:
                 raise e
                 
     # Final attempt fallback if loop finishes
-    return client.models.generate_content(model="gemini-1.5-flash", contents=prompt).text.strip()
+    return client.models.generate_content(model="gemini-1.5-flash-latest", contents=prompt).text.strip()
 
 
 def _parse_json_response(raw: str) -> dict:
