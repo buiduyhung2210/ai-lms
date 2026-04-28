@@ -429,7 +429,6 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "chapter_ref": "Which chapter this slide covers (or 'all' for intro/toc/summary)",
       "section_ref": "Which section ID this slide covers (or 'all')",
       "heading": "Slide heading (max 50 chars)",
-      "image_query": "A descriptive search query for a professional diagram, icon, or photo relevant to this slide (e.g. 'binary search tree visualization diagram professional')",
       "bullets": [
         {{
           "text": "The main point to display on the slide",

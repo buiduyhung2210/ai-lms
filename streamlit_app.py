@@ -320,28 +320,40 @@ if uploaded_file is not None:
                 
                 with col2:
                     st.subheader("🖼️ Visual Infographics")
-                    st.caption("Click any image to zoom and view in full resolution.")
+                    st.caption("Use the tabs below to switch between a standard preview and a high-resolution Zoom Mode.")
                     
                     # Display multiple infographics if available
                     for i, img_bytes in enumerate(images_list):
-                        with st.container():
+                        tab1, tab2 = st.tabs([f"Preview {i+1}", f"🔍 Zoom Mode {i+1}"])
+                        
+                        with tab1:
                             st.markdown(f"""
-                            <div style='background: rgba(255,255,255,0.03); border-radius: 10px; padding: 10px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px;'>
-                                <div style='font-size:0.8em; color:#94a3b8; margin-bottom:10px;'>INFOGRAPHIC PART {i+1}</div>
+                            <div style='background: rgba(255,255,255,0.03); border-radius: 10px; padding: 10px; border: 1px solid rgba(255,255,255,0.1);'>
+                                <div style='font-size:0.8em; color:#94a3b8; margin-bottom:10px;'>PART {i+1} PREVIEW</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.image(img_bytes, use_column_width=True)
+                        
+                        with tab2:
+                            st.markdown(f"""
+                            <div style='background: rgba(255,255,255,0.03); border-radius: 10px; padding: 10px; border: 1px solid rgba(255,255,255,0.1);'>
+                                <div style='font-size:0.8em; color:#94a3b8; margin-bottom:10px;'>PART {i+1} HIGH-RES PAN & ZOOM</div>
+                                <div style='height: 600px; overflow: scroll; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px;'>
+                                    <img src="data:image/png;base64,{base64.b64encode(img_bytes).decode()}" style="width: 200%; max-width: none;">
+                                </div>
+                                <p style='font-size: 0.8em; color: #64748b; margin-top: 10px;'>Tip: Scroll horizontally and vertically to explore details.</p>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            st.image(img_bytes, use_column_width=True)
-                            
-                            st.download_button(
-                                label=f"Download Part {i+1} (PNG)",
-                                data=img_bytes,
-                                file_name=f"infographic_{uploaded_file.name}_{i}.png",
-                                mime="image/png",
-                                key=f"dl_infographic_{i}",
-                                use_container_width=True
-                            )
-                            st.markdown("<br>", unsafe_allow_html=True)
+                        st.download_button(
+                            label=f"Download Part {i+1} (PNG)",
+                            data=img_bytes,
+                            file_name=f"infographic_{uploaded_file.name}_{i}.png",
+                            mime="image/png",
+                            key=f"dl_infographic_{i}",
+                            use_container_width=True
+                        )
+                        st.markdown("<br>", unsafe_allow_html=True)
                 
                 # --- Lesson Outline ---
                 st.markdown("---")
