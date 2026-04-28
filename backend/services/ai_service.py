@@ -27,14 +27,35 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_gemini(prompt: str, max_chars: int = 0) -> str:
-    """Helper to call Gemini and return raw text response."""
+def _call_gemini(prompt: str, model_name: Optional[str] = None) -> str:
+    """Helper to call Gemini and return raw text response with retry logic."""
     client = _get_client()
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
-    return response.text.strip()
+    model_id = _get_model_id(model_name)
+    
+    max_retries = 3
+    base_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt,
+            )
+            if not response or not response.text:
+                raise ValueError("Empty response from Gemini")
+            return response.text.strip()
+        except Exception as e:
+            err_str = str(e).lower()
+            # Retry on 503 (Service Unavailable), 429 (Rate Limit), or generic resource exhaustion
+            if "503" in err_str or "429" in err_str or "resource_exhausted" in err_str or "service unavailable" in err_str:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    logger.warning(f"⚠️ Gemini API busy (Attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            
+            logger.error(f"❌ Gemini API call failed: {e}")
+            raise e
 
 
 def _parse_json_response(raw: str) -> dict:
