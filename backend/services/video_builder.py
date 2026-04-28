@@ -172,6 +172,36 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         ref_text = f"Ch.{chapter_ref} / Sec.{section_ref}"
         draw.text((width - 200, 20), ref_text, font=ref_font, fill=theme["accent"])
 
+    # --- NEW: Internet Image Integration ---
+    image_query = slide.get("image_query", "")
+    has_image = False
+    if image_query:
+        try:
+            import requests
+            import io
+            # Clean up query for URL
+            clean_query = image_query.replace(" ", ",").split(",")[0:3] # take first 3 words
+            search_url = f"https://loremflickr.com/400/300/{','.join(clean_query)}"
+            
+            response = requests.get(search_url, timeout=5)
+            if response.status_code == 200:
+                overlay_img = Image.open(io.BytesIO(response.content)).convert("RGBA")
+                # Resize and add rounded corners
+                overlay_img.thumbnail((400, 300))
+                
+                # Create mask for rounded corners
+                mask = Image.new("L", overlay_img.size, 0)
+                mask_draw = ImageDraw.Draw(mask)
+                mask_draw.rounded_rectangle([0, 0, overlay_img.size[0], overlay_img.size[1]], radius=15, fill=255)
+                
+                # Paste on right side
+                img.paste(overlay_img, (width - 450, 150), mask)
+                # Border
+                draw.rounded_rectangle([width - 450, 150, width - 450 + overlay_img.size[0], 150 + overlay_img.size[1]], radius=15, outline=theme["accent"], width=3)
+                has_image = True
+        except Exception as e:
+            logger.warning(f"Failed to fetch internet image for query '{image_query}': {e}")
+
     # Slide heading
     heading_font = _get_font(48, bold=True)
     emoji_font = _get_font(48, emoji=True)
@@ -207,9 +237,12 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
         line_height = 52
 
     bullet_font = _get_font(bullet_font_size)
-    bullet_start_y = underline_y + 30
+    current_y = underline_y + 30
 
-    for i, bullet in enumerate(bullets[:max_bullets]):
+    for bullet in bullets[:max_bullets]:
+        if current_y + line_height > height - 40:
+            break
+
         # Handle both old string format and new object format
         if isinstance(bullet, dict):
             b_text = bullet.get("text", "")
@@ -218,43 +251,43 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
             b_text = str(bullet)
             b_example = None
 
-        y = bullet_start_y + i * line_height
-        if y + line_height > height - 30:
-            break  # Don't overflow past slide bottom
-
         # Bullet dot
         dot_x = 72
-        dot_y = y + 14
+        dot_y = current_y + 14
         draw.ellipse([dot_x - 8, dot_y - 8, dot_x + 8, dot_y + 8], fill=theme["bullet_dot"])
 
-        # Bullet text (wrap at ~70 chars)
-        wrapped = textwrap.fill(b_text, width=70)
-        first_line = wrapped.split("\n")[0]
-        draw.text((100, y), first_line, font=bullet_font, fill=theme["text"])
+        # Bullet text (wrap narrower if we have an image on the right)
+        wrap_width = 45 if has_image else 70
+        wrapped_text = textwrap.fill(b_text, width=wrap_width)
+        text_lines = wrapped_text.split("\n")
+        
+        # Draw each line of bullet text
+        for line in text_lines:
+            if current_y + bullet_font_size > height - 30:
+                break
+            draw.text((100, current_y), line, font=bullet_font, fill=theme["text"])
+            current_y += (bullet_font_size + 8)
 
-        # If there's a second line and space allows
-        current_y = y
-        if "\n" in wrapped and (current_y + line_height + 20 < height - 30):
-            second_line = wrapped.split("\n")[1]
-            draw.text((100, current_y + bullet_font_size + 4), second_line, font=_get_font(max(20, bullet_font_size - 4)), fill=theme["text"])
-            current_y += bullet_font_size + 10
-            
         # Draw example if present and space allows
         if b_example:
             example_font = _get_font(max(16, bullet_font_size - 8), mono=True)
-            # Use a narrower width for code to keep it contained
-            wrapped_ex = textwrap.fill(f"{b_example}", width=65)
+            # Use a narrower width for code if we have an image
+            ex_wrap_width = 40 if has_image else 65
+            wrapped_ex = textwrap.fill(f"{b_example}", width=ex_wrap_width)
             ex_lines = wrapped_ex.split("\n")
             
+            # Indent example and draw lines
             for ex_line in ex_lines:
-                if (current_y + 20 < height - 40):
-                    draw.text((120, current_y + bullet_font_size + 4), ex_line, font=example_font, fill=theme["accent"])
-                    current_y += (bullet_font_size - 6)
-                else:
+                if current_y + 20 > height - 40:
                     break
+                draw.text((120, current_y), ex_line, font=example_font, fill=theme["accent"])
+                current_y += (bullet_font_size - 4)
             
-            # Additional spacing after an example block
-            bullet_start_y += (len(ex_lines) * 6)
+            # Small extra gap after an example
+            current_y += 10
+        else:
+            # Small gap between bullets if no example
+            current_y += 5
 
     # Progress bar at bottom
     progress = slide["slide_number"] / total_slides
