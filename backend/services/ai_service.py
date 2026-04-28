@@ -72,7 +72,7 @@ def _parse_json_response(raw: str) -> dict:
 # Stage 1: Document Classification
 # ---------------------------------------------------------------------------
 
-def classify_document(document_text: str, user_subject_hint: str = "Auto-detect") -> dict:
+def classify_document(document_text: str, user_subject_hint: str = "Auto-detect", model_name: Optional[str] = None) -> dict:
     """
     Classify the document's subject, difficulty, and content style.
 
