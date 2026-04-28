@@ -27,46 +27,14 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_gemini(prompt: str, max_retries: int = 5) -> str:
-    """Helper to call Gemini and return raw text response with robust retry logic."""
+def _call_gemini(prompt: str, max_chars: int = 0) -> str:
+    """Helper to call Gemini and return raw text response."""
     client = _get_client()
-    
-    # Standardized model names (avoiding '-latest' which can cause 404 in some environments)
-    model_options = ["gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash"]
-    
-    for attempt in range(max_retries):
-        try:
-            # Rotate models to find one with available quota
-            model_to_use = model_options[attempt % len(model_options)]
-            
-            response = client.models.generate_content(
-                model=model_to_use,
-                contents=prompt,
-            )
-            return response.text.strip()
-            
-        except Exception as e:
-            error_msg = str(e).lower()
-            # Catch Busy (503), Quota (429), or transient Model Not Found (404)
-            is_retryable = any(x in error_msg for x in ["503", "429", "high demand", "resourceexhausted", "quota", "404", "not found"])
-            
-            if is_retryable:
-                # If it's a quota error, wait progressively longer (30s, 45s, 60s...)
-                is_quota = any(x in error_msg for x in ["429", "quota", "resourceexhausted"])
-                if is_quota:
-                    wait_time = 30 + (attempt * 15) 
-                else:
-                    wait_time = (attempt + 1) * 5
-                
-                logger.warning(f"Gemini API issue (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
-                time.sleep(wait_time)
-            else:
-                # Fatal error (e.g., auth, invalid prompt)
-                logger.error(f"Gemini call failed with fatal error: {e}")
-                raise e
-                
-    # Final effort using the most standard model name
-    return client.models.generate_content(model="gemini-1.5-flash", contents=prompt).text.strip()
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=prompt,
+    )
+    return response.text.strip()
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -589,46 +557,36 @@ Topic: {lesson_plan.get('topic')}
 
 def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> list[bytes]:
     """
-    Generate multiple infographic PNGs using Gemini image generation.
-    Returns a list of raw PNG bytes.
+    Generate infographic PNGs using Gemini image generation.
+    Simplified to handle quota better.
     """
     client = _get_client()
     images = []
 
-    for desc in descriptions[:3]:  # Limit to 3 images for now to save time/quota
-        full_prompt = (
-            f"Create a professional educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
-            f"{desc} "
-            f"Style: modern, clean, high-contrast, suitable for corporate training. "
-            f"Make it visually stunning with icons and data visualization elements."
+    # Use only the first description to avoid 429 quota spikes
+    if not descriptions:
+        return []
+        
+    desc = descriptions[0]
+    full_prompt = (
+        f"Create a professional educational infographic poster about '{lesson_plan.get('title', 'Training')}'. "
+        f"{desc} "
+        f"Style: modern, clean, high-contrast, suitable for corporate training. "
+        f"Make it visually stunning with icons and data visualization elements."
+    )
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=full_prompt,
         )
 
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=full_prompt,
-                )
-
-                for part in response.candidates[0].content.parts:
-                    if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                        images.append(part.inline_data.data)
-                        break
-                else:
-                    continue
+        for part in response.candidates[0].content.parts:
+            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                images.append(part.inline_data.data)
                 break
-
-            except Exception as e:
-                error_msg = str(e).lower()
-                if any(x in error_msg for x in ["503", "429", "quota", "resourceexhausted", "404", "not found"]):
-                    logger.warning(f"Gemini image API issue, waiting 45s for retry...")
-                    time.sleep(45)
-                    continue
-                logger.warning(f"Gemini image generation failed for a segment: {e}")
-                break
-                
-        # Small delay between different infographic calls to avoid RPM limits
-        time.sleep(2)
+    except Exception as e:
+        logger.warning(f"Infographic generation failed: {e}")
                 
     return images
 
