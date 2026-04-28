@@ -35,7 +35,6 @@ async def start_generation(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     api_key: Optional[str] = Form(None),
-    model_name: Optional[str] = Form(None),
 ):
     """Accept a document upload, kick off async generation pipeline."""
     # Validate file type
@@ -61,7 +60,7 @@ async def start_generation(
         "error": None,
     }
 
-    background_tasks.add_task(_run_pipeline, job_id, filename, content, api_key, model_name)
+    background_tasks.add_task(_run_pipeline, job_id, filename, content, api_key)
 
     return {"job_id": job_id}
 
@@ -112,7 +111,7 @@ async def serve_output(filename: str):
 
 # ─── Pipeline ───────────────────────────────────────────────────────────────
 
-async def _run_pipeline(job_id: str, filename: str, content: bytes, api_key: Optional[str] = None, model_name: Optional[str] = None):
+async def _run_pipeline(job_id: str, filename: str, content: bytes, api_key: Optional[str] = None):
     """Background task: full generation pipeline."""
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -137,22 +136,22 @@ async def _run_pipeline(job_id: str, filename: str, content: bytes, api_key: Opt
         # Step 2: Analyze with Gemini
         update("🧠 Analyzing content with AI...", 15)
         # Using full pipeline explicitly for more control
-        from backend.services.ai_service import classify_document, detect_structure, summarize_sections, generate_lesson_plan
-        classification = await loop.run_in_executor(None, classify_document, document_text, "Auto-detect", model_name)
-        structure = await loop.run_in_executor(None, detect_structure, document_text, classification, None, model_name)
-        summaries = await loop.run_in_executor(None, summarize_sections, document_text, structure, classification, model_name)
-        lesson_plan = await loop.run_in_executor(None, generate_lesson_plan, classification, structure, summaries, document_text, model_name)
+        from backend.services.ai_service import classify_document, detect_structure, summarize_sections
+        classification = await loop.run_in_executor(None, classify_document, document_text)
+        structure = await loop.run_in_executor(None, detect_structure, document_text, classification)
+        summaries = await loop.run_in_executor(None, summarize_sections, document_text, structure, classification)
+        lesson_plan = await loop.run_in_executor(None, generate_lesson_plan, classification, structure, summaries, document_text)
 
         # Step 3: Generate infographic prompts
         update("🎨 Designing infographics...", 35)
         infographic_descs = await loop.run_in_executor(
-            None, generate_infographic_descriptions, document_text, lesson_plan, model_name
+            None, generate_infographic_descriptions, document_text, lesson_plan
         )
 
         # Step 4: Generate infographic images
         update("🖼️ Generating infographic images...", 45)
         images_list = await loop.run_in_executor(
-            None, generate_infographic_images, infographic_descs, lesson_plan, model_name
+            None, generate_infographic_images, infographic_descs, lesson_plan
         )
 
         if not images_list:
