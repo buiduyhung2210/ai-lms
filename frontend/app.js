@@ -11,6 +11,7 @@ const fileNameDisplay  = document.getElementById('file-name-display');
 const fileSizeDisplay  = document.getElementById('file-size-display');
 const btnGenerate      = document.getElementById('btn-generate');
 const apiKeyInput      = document.getElementById('api-key-input');
+const modelSelect      = document.getElementById('model-select');
 
 const uploadSection    = document.getElementById('upload-section');
 const progressSection  = document.getElementById('progress-section');
@@ -97,6 +98,7 @@ async function startGeneration() {
   if (!selectedFile) return;
 
   const apiKey = apiKeyInput.value.trim();
+  const modelName = modelSelect.value;
 
   hideError();
   showProgress();
@@ -106,6 +108,7 @@ async function startGeneration() {
   if (apiKey) {
     formData.append('api_key', apiKey);
   }
+  formData.append('model_name', modelName);
 
   let jobId;
   try {
@@ -329,11 +332,19 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Restore API key from sessionStorage if available
+// Restore API key and model from sessionStorage if available
 const savedKey = sessionStorage.getItem('gemini_api_key');
+const savedModel = sessionStorage.getItem('gemini_model');
+
 if (savedKey) apiKeyInput.value = savedKey;
+if (savedModel) modelSelect.value = savedModel;
+
 apiKeyInput.addEventListener('input', () => {
   if (apiKeyInput.value.trim()) {
     sessionStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
   }
+});
+
+modelSelect.addEventListener('change', () => {
+  sessionStorage.setItem('gemini_model', modelSelect.value);
 });
