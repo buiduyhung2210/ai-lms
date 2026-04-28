@@ -46,11 +46,14 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> str:
             return response.text.strip()
             
         except Exception as e:
-            # Check for 503 or demand errors
+            # Check for 503, 429 or quota/demand errors
             error_msg = str(e)
-            if "503" in error_msg or "high demand" in error_msg.lower() or "ResourceExhausted" in error_msg:
-                wait_time = (attempt + 1) * 2  # 2s, 4s, 6s...
-                logger.warning(f"Gemini busy (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
+            if any(x in error_msg.lower() for x in ["503", "429", "high demand", "resourceexhausted", "quota"]):
+                # If it's a quota error, wait much longer
+                is_quota = "429" in error_msg or "quota" in error_msg.lower() or "resourceexhausted" in error_msg.lower()
+                wait_time = 30 if is_quota else (attempt + 1) * 3
+                
+                logger.warning(f"Gemini {'Quota' if is_quota else 'Busy'} (attempt {attempt+1}/{max_retries}). Waiting {wait_time}s... Error: {e}")
                 time.sleep(wait_time)
             else:
                 # If it's a different error, raise it immediately
@@ -611,11 +614,16 @@ def generate_infographic_images(descriptions: list[str], lesson_plan: dict) -> l
                 break
 
             except Exception as e:
-                if "503" in str(e) and attempt == 0:
-                    time.sleep(3)
+                error_msg = str(e)
+                if any(x in error_msg.lower() for x in ["503", "429", "quota", "resourceexhausted"]):
+                    logger.warning(f"Gemini image busy/quota, waiting 30s for retry...")
+                    time.sleep(30)
                     continue
                 logger.warning(f"Gemini image generation failed for a segment: {e}")
                 break
+                
+        # Small delay between different infographic calls to avoid RPM limits
+        time.sleep(2)
                 
     return images
 
