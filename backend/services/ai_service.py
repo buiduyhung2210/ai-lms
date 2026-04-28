@@ -278,7 +278,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this st
       "key_ideas": [
         {{
           "idea": "First key idea — must include specific facts from the text.",
-          "example": "FULL VERBATIM code block, CLI command, or concrete example. Do NOT truncate. Include the entire logic block if available."
+          "example": "VERBATIM code block, CLI command, or formula. Return null if no concrete example exists. DO NOT rephrase the idea as an example."
         }}
       ],
       "important_terms": ["term1", "term2", "term3"],
@@ -432,7 +432,7 @@ Return ONLY a valid JSON object (no markdown fences, no extra text) with this ex
       "bullets": [
         {{
           "text": "The main point to display on the slide",
-          "example": "The FULL verbatim code snippet, command, or logic block from the source. NO TRUNCATION."
+          "example": "Verbatim code snippet, command, or logic block. Return null if no concrete example exists. DO NOT rephrase the bullet text."
         }}
       ],
       "narration": "A 2-3 sentence narration script for this slide that a teacher would say aloud."

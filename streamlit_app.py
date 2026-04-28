@@ -393,7 +393,7 @@ if uploaded_file is not None:
                                     b_text = bullet.get("text", "")
                                     b_example = bullet.get("example")
                                     st.markdown(f"- {b_text}")
-                                    if b_example:
+                                    if b_example and str(b_example).lower() not in ["none", "null", "n/a", ""]:
                                         st.code(b_example)
                                 else:
                                     st.markdown(f"- {bullet}")

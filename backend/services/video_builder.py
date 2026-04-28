@@ -238,7 +238,7 @@ def render_slide(slide: dict, theme: dict, lesson_title: str, total_slides: int,
             current_y += (bullet_font_size + 8)
 
         # Draw example if present and space allows
-        if b_example:
+        if b_example and str(b_example).lower() not in ["none", "null", "n/a", ""]:
             example_font = _get_font(max(16, bullet_font_size - 8), mono=True)
             ex_wrap_width = 65
             wrapped_ex = textwrap.fill(f"{b_example}", width=ex_wrap_width)
